@@ -1,0 +1,21 @@
+# Build output and binaries
+build/
+*.o
+*.out
+*.exe
+a.out
+
+# Program output (never committed)
+points.txt
+pixels.txt
+*.pgm
+*.ppm
+*.png
+*.jpg
+*.jpeg
+*.bmp
+
+# Editor / OS / Jupyter
+.DS_Store
+.vscode/
+.ipynb_checkpoints/
