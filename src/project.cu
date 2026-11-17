@@ -24,14 +24,19 @@ struct Camera {
   int W, H;
 };
 
-__device__ void atomicMinFloat(float* addr, float val) {
-  int* a = (int*)addr;
-  int old = *a;
-  while (val < __int_as_float(old)) {                        // is my value still smaller?
-    int prev = atomicCAS(a, old, __float_as_int(val));       // try to swap it in
-    if (prev == old) break;                                  // nobody changed it: I won
-    old = prev;                                              // someone beat me: re-check and retry
-  }
+__device__ void atomicMinFloat(float*address, float val) {
+    atomicMin((int*)address, __float_as_int(val));
+}
+
+// Second version, copied unchanged from src/step0.cu. Not called here; bench.cu times both.
+__device__ void atomicMinFloatGeneric(float*address, float val) {
+    int *a = (int*)address;
+    int old = *a;
+    while (val < __int_as_float(old)) {
+        int prev = atomicCAS(a, old, __float_as_int(val));
+        if (prev == old) break;
+        old = prev;
+    }
 }
 
 
