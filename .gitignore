@@ -5,6 +5,10 @@ build/
 *.exe
 a.out
 
+#md files
+CLAUDE.md
+PROGRESS.md
+
 # Program output (never committed)
 points.txt
 pixels.txt

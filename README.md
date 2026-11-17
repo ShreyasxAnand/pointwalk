@@ -12,8 +12,6 @@ aerial imagery and 360 panoramas.
 | `src/` | CUDA sources (`.cu`) and shared C++ headers |
 | `tests/` | CPU-only tests, compiled locally with `g++` |
 | `notebooks/launcher.ipynb` | One Colab cell: clone or pull, compile, run, display |
-| `PROGRESS.md` | Step status, session log, recall list |
-| `CLAUDE.md` | Working rules for the AI assistant |
 
 ## Running
 
