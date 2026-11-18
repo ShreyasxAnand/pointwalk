@@ -9,10 +9,6 @@ const int W = 640;
 const int H = 480;
 const float fx = 500.0f, fy = 500.0f;    // focal length (zoom), in pixels
 const float cx = 320.0f, cy = 240.0f;    // image center
-const float R[3][3] = {{1, 0, 0},
-                       {0, 1, 0},
-                       {0, 0, 1}};
-const float t[3] = {0, 0, 0};
 
 struct Point {
   float x, y , z;
@@ -60,10 +56,11 @@ float randFloat(float min, float max) {
 }
 
 // CHANGED: added `float& z` so project also hands back the camera depth
-bool project(Point p, float& u, float& v, float& z) {
-  float xc = R[0][0]*p.x + R[0][1]*p.y + R[0][2]*p.z + t[0];
-  float yc = R[1][0]*p.x + R[1][1]*p.y + R[1][2]*p.z + t[1];
-  float zc = R[2][0]*p.x + R[2][1]*p.y + R[2][2]*p.z + t[2];
+// STEP 1: added `cam`, so the CPU uses the same R and t as the GPU kernel
+bool project(Point p, const Camera& cam, float& u, float& v, float& z) {
+  float xc = cam.R[0][0]*p.x + cam.R[0][1]*p.y + cam.R[0][2]*p.z + cam.t[0];
+  float yc = cam.R[1][0]*p.x + cam.R[1][1]*p.y + cam.R[1][2]*p.z + cam.t[1];
+  float zc = cam.R[2][0]*p.x + cam.R[2][1]*p.y + cam.R[2][2]*p.z + cam.t[2];
   if (zc < 0.1f) return false;
   u = fx * (xc / zc) + cx;
   v = fy * (yc / zc) + cy;
@@ -74,7 +71,7 @@ bool project(Point p, float& u, float& v, float& z) {
 int main() {
   // ---- Camera: the lens numbers, then where it stands and which way it faces ----
   Camera cam = {{{1,0,0},{0,1,0},{0,0,1}}, {0,0,0}, fx, fy, cx, cy, W, H};
-  setPose(cam, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);   // position x, y, z in metres, then yaw, pitch in radians
+  setPose(cam, 0.0f, 0.0f, -1.0f, 0.0f, 0.0f);  // position x, y, z in metres, then yaw, pitch in radians
 
   const int N = 1000000;
   const float PI = 3.14159265f;
@@ -127,7 +124,7 @@ int main() {
   int visible = 0;
   for (int i = 0; i < N; i++) {
     float u, v, z;                                   // CHANGED: added z
-    if (project(pts[i], u, v, z)) {                  // CHANGED: pass z
+    if (project(pts[i], cam, u, v, z)) {             // CHANGED: pass z
       if (u >= 0 && u < W && v >= 0 && v < H) {
         fprintf(img, "%f %f %f\n", u, v, z);         // CHANGED: camera depth, not pts[i].z
         visible++;
@@ -137,11 +134,26 @@ int main() {
   fclose(img);
   printf("%d of %d dots are visible in the photo\n", visible, N);
 
+  // ---- Step 1 check: stepping back 1 m must add exactly 1 to every depth ----
+  // Compare each dot's depth from this camera with its depth from a camera that
+  // has not moved. Only meaningful while the pose above is "back 1 m, no turning".
+  Camera still = cam;
+  setPose(still, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+  int compared = 0, exact = 0;
+  for (int i = 0; i < N; i++) {
+    float u, v, zStill, zMoved;
+    if (!project(pts[i], still, u, v, zStill)) continue;   // behind the unmoved camera
+    if (!project(pts[i], cam, u, v, zMoved)) continue;     // behind the moved camera
+    compared++;
+    if (zMoved == zStill + 1.0f) exact++;
+  }
+  printf("back 1 m: %d of %d dots are exactly 1 m deeper\n", exact, compared);
+
   // ---- NEW: Depth buffer — one sticky note per pixel, keep the closest ----
   std::vector<float> depth(W * H, 1e30f);            // every pixel starts "really far"
   for (int i = 0; i < N; i++) {
     float u, v, z;
-    if (!project(pts[i], u, v, z)) continue;         // behind camera → skip
+    if (!project(pts[i], cam, u, v, z)) continue;    // behind camera → skip
 
     int px = (int)floorf(u);                         // which column box
     int py = (int)floorf(v);                         // which row box
