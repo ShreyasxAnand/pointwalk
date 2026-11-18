@@ -3,6 +3,8 @@
 #include <cmath>
 #include <cstdlib>
 #include "camera.h"    // the Camera struct and setPose
+#include "image.h"     // Color and writePPM
+#include "pack.h"      // packDepthIndex, unpackDepth, unpackIndex
 
 // Camera parameters
 const int W = 640;
@@ -76,6 +78,9 @@ int main() {
   const int N = 1000000;
   const float PI = 3.14159265f;
   std::vector<Point> pts(N);
+  std::vector<Color> colors(N);          // colors[i] is the colour of dot i (same numbering as pts)
+  const Color floorColor = {170, 170, 170};   // grey
+  const Color ballColor  = {220, 40, 40};     // red
 
   // ---- Scene settings ----
   const float floorY = 1.5f;
@@ -89,6 +94,7 @@ int main() {
       pts[i].x = randFloat(-10, 10);
       pts[i].y = floorY;
       pts[i].z = randFloat(1, 30);
+      colors[i] = floorColor;
     }
     else {
       float h = randFloat(-1, 1);
@@ -97,6 +103,7 @@ int main() {
       pts[i].x = s * cosf(theta) * radius + center.x;
       pts[i].y = h * radius + center.y;
       pts[i].z = s * sinf(theta) * radius + center.z;
+      colors[i] = ballColor;
     }
   }
 
