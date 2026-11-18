@@ -2,6 +2,7 @@
 #include <vector>
 #include <cmath>
 #include <cstdlib>
+#include "camera.h"    // the Camera struct and setPose
 
 // Camera parameters
 const int W = 640;
@@ -15,13 +16,6 @@ const float t[3] = {0, 0, 0};
 
 struct Point {
   float x, y , z;
-};
-
-struct Camera {
-  float R[3][3];
-  float t[3];
-  float fx, fy, cx, cy;
-  int W, H;
 };
 
 __device__ void atomicMinFloat(float*address, float val) {
@@ -78,6 +72,10 @@ bool project(Point p, float& u, float& v, float& z) {
 }
 
 int main() {
+  // ---- Camera: the lens numbers, then where it stands and which way it faces ----
+  Camera cam = {{{1,0,0},{0,1,0},{0,0,1}}, {0,0,0}, fx, fy, cx, cy, W, H};
+  setPose(cam, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);   // position x, y, z in metres, then yaw, pitch in radians
+
   const int N = 1000000;
   const float PI = 3.14159265f;
   std::vector<Point> pts(N);
@@ -171,9 +169,7 @@ int main() {
     }
   }
 
-  // ---- GPU depth buffer ----
-  Camera cam = {{{1,0,0},{0,1,0},{0,0,1}}, {0,0,0}, fx, fy, cx, cy, W, H};
-
+  // ---- GPU depth buffer (uses the camera set up at the top of main) ----
   Point* d_pts;      // "d_" = lives on the device (GPU)
   float* d_depth;
   cudaMalloc(&d_pts, N * sizeof(Point));               // like malloc, but on the GPU
