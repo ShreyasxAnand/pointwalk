@@ -178,6 +178,10 @@ int main() {
   }
   printf("back 1 m: %d of %d dots are exactly 1 m deeper\n", exact, compared);
 
+  // An empty note says "really far" (same 1e30 as the depth buffer), so any real
+  // dot is smaller and replaces it. Used by both the CPU notes and the GPU notes.
+  const Packed emptyNote = packDepthIndex(1e30f, 0);
+
   // ---- NEW: Depth buffer — one sticky note per pixel, keep the closest ----
   std::vector<float> depth(W * H, 1e30f);            // every pixel starts "really far"
   for (int i = 0; i < N; i++) {
@@ -190,6 +194,22 @@ int main() {
 
     int idx = py * W + px;                           // box position in the long list
     if (z < depth[idx]) depth[idx] = z;              // closer? overwrite the note
+  }
+
+  // ---- Step 2: CPU notes. Same loop as above, but each note holds (distance, dot number) glued ----
+  // This is the slow, obviously-right version that the GPU notes get compared against.
+  std::vector<Packed> cpuNotes(W * H, emptyNote);    // every note starts empty
+  for (int i = 0; i < N; i++) {
+    float u, v, z;
+    if (!project(pts[i], cam, u, v, z)) continue;    // behind camera → skip
+
+    int px = (int)floorf(u);                         // which column box
+    int py = (int)floorf(v);                         // which row box
+    if (px < 0 || px >= W || py < 0 || py >= H) continue;   // off the photo → skip
+
+    int idx = py * W + px;                           // box position in the long list
+    Packed glued = packDepthIndex(z, i);             // glue: distance on the left, dot number on the right
+    if (glued < cpuNotes[idx]) cpuNotes[idx] = glued;   // smaller = closer? overwrite the note
   }
 
   // ---- NEW: Count how many boxes got something ----
@@ -230,8 +250,6 @@ int main() {
   cudaFree(d_depth);
 
   // ---- Step 2: GPU notes. One per box, each holding (distance, dot number) glued together ----
-  // An empty note says "really far", so any real dot is smaller and replaces it.
-  const Packed emptyNote = packDepthIndex(1e30f, 0);
   std::vector<Packed> gpuNotes(W * H, emptyNote);      // starting values: every note empty
   Packed* d_notes;
   cudaMalloc(&d_notes, W * H * sizeof(Packed));
