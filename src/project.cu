@@ -53,6 +53,28 @@ __global__ void depthKernel(const Point* pts, int N, Camera cam, float* depth) {
   atomicMinFloat(&depth[idx], zc);                 // closer? overwrite the note
 
 }
+
+__global__ void colorKernel(const Point* pts, int N, Camera cam, Packed* notes) {
+  int i = blockIdx.x * blockDim.x + threadIdx.x;   // which dot is mine?
+  if (i >= N) return;                               // extra thread, no dot
+
+  Point p = pts[i];
+  float xc = cam.R[0][0]*p.x + cam.R[0][1]*p.y + cam.R[0][2]*p.z + cam.t[0];
+  float yc = cam.R[1][0]*p.x + cam.R[1][1]*p.y + cam.R[1][2]*p.z + cam.t[1];
+  float zc = cam.R[2][0]*p.x + cam.R[2][1]*p.y + cam.R[2][2]*p.z + cam.t[2];
+  if (zc < 0.1f) return;                            // behind camera
+
+  float u = cam.fx * (xc / zc) + cam.cx;
+  float v = cam.fy * (yc / zc) + cam.cy;
+  int px = (int)floorf(u);
+  int py = (int)floorf(v);
+  if (px < 0 || px >= cam.W || py < 0 || py >= cam.H) return;   // off the photo
+
+  int idx = py * cam.W + px;
+  Packed glued = packDepthIndex(zc, i);   // glue: distance on the left, dot number on the right
+  atomicMin(&notes[idx], glued);          // write it on this box's note, only if it is smaller
+}
+
 float randFloat(float min, float max) {
   return min + (max - min) * ((float)rand() / RAND_MAX);
 }
@@ -205,8 +227,36 @@ int main() {
   printf("kernel status: %s\n", cudaGetErrorString(cudaGetLastError()));
 
   cudaMemcpy(gpuDepth.data(), d_depth, W * H * sizeof(float), cudaMemcpyDeviceToHost);
-  cudaFree(d_pts);
   cudaFree(d_depth);
+
+  // ---- Step 2: GPU notes. One per box, each holding (distance, dot number) glued together ----
+  // An empty note says "really far", so any real dot is smaller and replaces it.
+  const Packed emptyNote = packDepthIndex(1e30f, 0);
+  std::vector<Packed> gpuNotes(W * H, emptyNote);      // starting values: every note empty
+  Packed* d_notes;
+  cudaMalloc(&d_notes, W * H * sizeof(Packed));
+  cudaMemcpy(d_notes, gpuNotes.data(), W * H * sizeof(Packed), cudaMemcpyHostToDevice);
+
+  colorKernel<<<blocks, threads>>>(d_pts, N, cam, d_notes);   // same dots, same camera, new notes
+  cudaDeviceSynchronize();
+  printf("color kernel status: %s\n", cudaGetErrorString(cudaGetLastError()));
+
+  cudaMemcpy(gpuNotes.data(), d_notes, W * H * sizeof(Packed), cudaMemcpyDeviceToHost);
+  cudaFree(d_notes);
+  cudaFree(d_pts);
+
+  // How many notes got a dot, and what the note in the middle of the photo says.
+  int notesUsed = 0;
+  for (int k = 0; k < W * H; k++) {
+    if (unpackDepth(gpuNotes[k]) < 1e29f) notesUsed++;
+  }
+  printf("%d of %d notes have a dot on them\n", notesUsed, W * H);
+
+  Packed middle = gpuNotes[(H / 2) * W + (W / 2)];
+  if (unpackDepth(middle) < 1e29f)
+    printf("middle box: dot %u, %f m away\n", unpackIndex(middle), unpackDepth(middle));
+  else
+    printf("middle box: empty\n");
 
   int mismatches = 0;
   for (int k = 0; k < W * H; k++) {
