@@ -75,6 +75,22 @@ __global__ void colorKernel(const Point* pts, int N, Camera cam, Packed* notes) 
   atomicMin(&notes[idx], glued);          // write it on this box's note, only if it is smaller
 }
 
+// Second pass. One thread = one BOX (not one dot). Reads the box's note and paints the box.
+// No atomicMin: each thread writes only its own box, so nobody fights over anything.
+__global__ void resolveKernel(const Packed* notes, const Color* colors, int numBoxes, Color* image) {
+  int k = blockIdx.x * blockDim.x + threadIdx.x;   // which box is mine?
+  if (k >= numBoxes) return;                        // extra thread, no box
+
+  Packed note = notes[k];                           // my box's note
+  if (unpackDepth(note) >= 1e29f) {                 // still "really far": no dot landed here
+    image[k] = Color{0, 0, 0};                      // paint it black
+    return;
+  }
+
+  unsigned int dot = unpackIndex(note);             // which dot won this box
+  image[k] = colors[dot];                           // paint the box that dot's colour
+}
+
 float randFloat(float min, float max) {
   return min + (max - min) * ((float)rand() / RAND_MAX);
 }
@@ -260,8 +276,29 @@ int main() {
   printf("color kernel status: %s\n", cudaGetErrorString(cudaGetLastError()));
 
   cudaMemcpy(gpuNotes.data(), d_notes, W * H * sizeof(Packed), cudaMemcpyDeviceToHost);
-  cudaFree(d_notes);
   cudaFree(d_pts);
+
+  // ---- Step 2: second pass. Turn the notes into a picture, one thread per box ----
+  // The notes stay on the GPU from the first pass. The colour list has to be sent up.
+  Color* d_colors;
+  Color* d_image;
+  cudaMalloc(&d_colors, N * sizeof(Color));
+  cudaMalloc(&d_image, W * H * sizeof(Color));
+  cudaMemcpy(d_colors, colors.data(), N * sizeof(Color), cudaMemcpyHostToDevice);
+
+  int boxBlocks = (W * H + threads - 1) / threads;     // enough blocks to cover all W*H boxes
+  resolveKernel<<<boxBlocks, threads>>>(d_notes, d_colors, W * H, d_image);
+  cudaDeviceSynchronize();
+  printf("resolve kernel status: %s\n", cudaGetErrorString(cudaGetLastError()));
+
+  std::vector<Color> gpuImage(W * H);
+  cudaMemcpy(gpuImage.data(), d_image, W * H * sizeof(Color), cudaMemcpyDeviceToHost);
+  cudaFree(d_notes);
+  cudaFree(d_colors);
+  cudaFree(d_image);
+
+  if (writePPM("color.ppm", gpuImage.data(), W, H)) printf("saved color.ppm\n");
+  else printf("could not save color.ppm\n");
 
   // How many notes got a dot, and what the note in the middle of the photo says.
   int notesUsed = 0;
