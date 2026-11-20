@@ -282,6 +282,13 @@ int main() {
   }
   printf("GPU vs CPU: %d of %d pixels differ\n", mismatches, W * H);
 
+  // Step 2 check: every GPU note must equal the CPU note for the same box.
+  // Comparing the whole glued number checks the distance AND the dot number at once.
+  int noteMismatches = 0;
+  for (int k = 0; k < W * H; k++) {
+    if (gpuNotes[k] != cpuNotes[k]) noteMismatches++;
+  }
+  printf("GPU vs CPU notes: %d of %d differ\n", noteMismatches, W * H);
 
   FILE* pg = fopen("depth.pgm", "wb");
   fprintf(pg, "P5\n%d %d\n255\n", W, H);
