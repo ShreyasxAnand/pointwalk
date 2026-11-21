@@ -18,6 +18,7 @@ pixels.txt
 *.jpg
 *.jpeg
 *.bmp
+*.bin
 
 # Editor / OS / Jupyter
 .DS_Store

@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pointwalk viewer</title>
+<style>
+  html, body { margin: 0; background: #111; color: #ddd; font: 13px/1.4 ui-monospace, Menlo, Consolas, monospace; }
+  #wrap { max-width: 640px; margin: 0 auto; padding: 8px; }
+  #stage { position: relative; }
+  canvas { display: block; width: 100%; height: auto; background: #000; outline: none; }
+  #cover { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+           background: rgba(0, 0, 0, 0.55); color: #fff; font-size: 16px; cursor: pointer; }
+  #hud { display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 6px 0; }
+  #hud b { color: #fff; font-weight: normal; }
+  #keys { color: #999; }
+  #status { color: #f88; min-height: 1.4em; }
+  kbd { border: 1px solid #555; border-radius: 3px; padding: 0 4px; color: #ccc; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="view" width="640" height="480" tabindex="0"></canvas>
+    <div id="cover">Click here, then use the keys</div>
+  </div>
+  <div id="hud">
+    <span>position <b id="pos">-</b></span>
+    <span>yaw <b id="yaw">-</b></span>
+    <span>pitch <b id="pitch">-</b></span>
+    <span>kernels <b id="kernel">-</b></span>
+    <span>whole picture on GPU <b id="frame">-</b></span>
+    <span>pictures per second <b id="fps">-</b></span>
+  </div>
+  <div id="keys">
+    <kbd>W</kbd><kbd>S</kbd> forward / back &nbsp;
+    <kbd>A</kbd><kbd>D</kbd> left / right &nbsp;
+    <kbd>E</kbd><kbd>Q</kbd> up / down &nbsp;
+    <kbd>&larr;</kbd><kbd>&rarr;</kbd> turn &nbsp;
+    <kbd>&uarr;</kbd><kbd>&darr;</kbd> look up / down &nbsp;
+    <kbd>Shift</kbd> faster &nbsp;
+    <kbd>R</kbd> back to start
+  </div>
+  <div id="status"></div>
+</div>
+<script>
+// Keyboard handling and display only. The camera math is in src/move.h (applyMove).
+const WALK_SPEED = 3.0;    // metres per second
+const TURN_SPEED = 1.2;    // radians per second
+const FAST = 3.0;          // multiplier while Shift is held
+
+const canvas = document.getElementById('view');
+const ctx = canvas.getContext('2d');
+const cover = document.getElementById('cover');
+const statusLine = document.getElementById('status');
+const el = id => document.getElementById(id);
+
+const MOVE_KEYS = ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'KeyQ', 'KeyE',
+                   'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'];
+const held = new Set();     // the movement keys that are down right now
+let fast = false;
+let wantReset = false;
+let wake = null;            // called when something happens while the loop is resting
+
+function nudge() { if (wake) { const w = wake; wake = null; w(); } }
+
+window.addEventListener('keydown', e => {
+  if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') { fast = true; return; }
+  if (e.code === 'KeyR') { wantReset = true; nudge(); e.preventDefault(); return; }
+  if (MOVE_KEYS.includes(e.code)) { held.add(e.code); nudge(); e.preventDefault(); }
+});
+window.addEventListener('keyup', e => {
+  if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') { fast = false; return; }
+  held.delete(e.code);
+});
+// If the page loses the keyboard while a key is down, we never see the key come up.
+window.addEventListener('blur', () => { held.clear(); fast = false; cover.style.display = 'flex'; });
+window.addEventListener('focus', () => { cover.style.display = 'none'; });
+cover.addEventListener('click', () => { window.focus(); canvas.focus(); cover.style.display = 'none'; });
+canvas.addEventListener('click', () => { canvas.focus(); cover.style.display = 'none'; });
+
+const down = code => held.has(code) ? 1 : 0;
+const sleep = ms => new Promise(done => setTimeout(done, ms));
+
+function showInfo(res) {
+  const pose = (res.headers.get('X-Pose') || '').split(' ').map(Number);
+  if (pose.length === 5 && pose.every(Number.isFinite)) {
+    el('pos').textContent = pose.slice(0, 3).map(v => v.toFixed(2)).join(', ') + ' m';
+    el('yaw').textContent = (pose[3] * 180 / Math.PI).toFixed(1) + ' deg';
+    el('pitch').textContent = (pose[4] * 180 / Math.PI).toFixed(1) + ' deg';
+  }
+  const kernel = parseFloat(res.headers.get('X-Kernel-Ms'));
+  const frame = parseFloat(res.headers.get('X-Frame-Ms'));
+  if (Number.isFinite(kernel)) el('kernel').textContent = kernel.toFixed(3) + ' ms';
+  if (Number.isFinite(frame)) el('frame').textContent = frame.toFixed(3) + ' ms';
+}
+
+async function run() {
+  let last = performance.now();
+  let count = 0;
+  let fps = 0;
+  let drawnOnce = false;
+
+  while (true) {
+    // Nothing held and a picture already on screen: rest until a key is pressed.
+    if (drawnOnce && held.size === 0 && !wantReset) {
+      el('fps').textContent = 'resting';
+      await new Promise(done => { wake = done; });
+      last = performance.now() - 33;   // count the first picture after a rest as 1/30 s, so a quick tap still moves
+    }
+
+    const now = performance.now();
+    const dt = Math.min((now - last) / 1000, 0.1);   // seconds since the last picture, at most 0.1
+    last = now;
+
+    const speed = fast ? FAST : 1;
+    const step = WALK_SPEED * speed * dt;
+    const angle = TURN_SPEED * speed * dt;
+    const query = wantReset ? 'reset=1' : [
+      'f=' + ((down('KeyW') - down('KeyS')) * step).toFixed(5),
+      'r=' + ((down('KeyD') - down('KeyA')) * step).toFixed(5),
+      'u=' + ((down('KeyE') - down('KeyQ')) * step).toFixed(5),
+      't=' + ((down('ArrowRight') - down('ArrowLeft')) * angle).toFixed(5),
+      'l=' + ((down('ArrowUp') - down('ArrowDown')) * angle).toFixed(5),
+    ].join('&');
+    wantReset = false;
+
+    try {
+      const started = performance.now();
+      const res = await fetch('frame?' + query + '&n=' + (count++), { cache: 'no-store' });
+      if (!res.ok) throw new Error(await res.text() || ('HTTP ' + res.status));
+      const picture = await createImageBitmap(await res.blob());
+      ctx.drawImage(picture, 0, 0, canvas.width, canvas.height);
+      picture.close();
+      drawnOnce = true;
+      showInfo(res);
+      const took = performance.now() - started;
+      fps = fps ? 0.9 * fps + 0.1 * (1000 / took) : 1000 / took;
+      el('fps').textContent = fps.toFixed(1);
+      statusLine.textContent = '';
+    } catch (problem) {
+      statusLine.textContent = 'No picture: ' + problem.message + ' (trying again)';
+      await sleep(1000);
+    }
+  }
+}
+
+if (document.hasFocus()) cover.style.display = 'none';
+run();
+</script>
+</body>
+</html>
