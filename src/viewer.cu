@@ -76,7 +76,8 @@ int main(int argc, char** argv) {
   const Pose startPose = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f};   // at the origin, facing +z, level
   Pose pose = startPose;
 
-  std::vector<Color> image(W * H);
+  Color* image;                                           // the picture, on the CPU side
+  CHECK(cudaMallocHost(&image, W * H * sizeof(Color)));   // locked memory: the GPU can copy straight into it
 
   // ---- Say hello, then answer one line at a time until the input closes ----
   printf("POINTWALK %d %d %d\n", W, H, N);
@@ -113,12 +114,12 @@ int main(int argc, char** argv) {
     float kernelMs = 0.0f;
     CHECK(cudaEventElapsedTime(&kernelMs, kernelStart, kernelEnd));
 
-    CHECK(cudaMemcpy(image.data(), d_image, W * H * sizeof(Color), cudaMemcpyDeviceToHost));
+    CHECK(cudaMemcpy(image, d_image, W * H * sizeof(Color), cudaMemcpyDeviceToHost));
     float frameMs = std::chrono::duration<float, std::milli>(
         std::chrono::steady_clock::now() - frameStart).count();
 
     printf("FRAME %f %f %f %f %f %f %f\n", pose.x, pose.y, pose.z, pose.yaw, pose.pitch, kernelMs, frameMs);
-    fwrite(image.data(), sizeof(Color), image.size(), stdout);
+    fwrite(image, sizeof(Color), W * H, stdout);
     fflush(stdout);
   }
 
@@ -129,5 +130,6 @@ int main(int argc, char** argv) {
   cudaFree(d_notes);
   cudaFree(d_emptyNotes);
   cudaFree(d_image);
+  cudaFreeHost(image);
   return 0;
 }

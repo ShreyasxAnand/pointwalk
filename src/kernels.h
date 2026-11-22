@@ -30,6 +30,7 @@ __global__ void colorKernel(const Point* pts, int N, Camera cam, Packed* notes) 
 
   int idx = py * cam.W + px;
   Packed glued = packDepthIndex(zc, i);   // glue: distance on the left, dot number on the right
+  if (glued >= notes[idx]) return; (early out nearer dot)
   atomicMin(&notes[idx], glued);          // write it on this box's note, only if it is smaller
 }
 

@@ -1,6 +1,7 @@
 # Build output and binaries
 build/
 build_replay/
+build_compare/
 build_real/
 *.o
 *.out
