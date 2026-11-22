@@ -1,6 +1,8 @@
 #ifndef MOVE_H
 #define MOVE_H
 
+#include <cmath>   // sinf, cosf
+
 // Step 3: where the camera is and which way it faces, and how one key press
 // changes that. Plain C++, no CUDA in here, so it can be tested on this machine.
 
@@ -20,17 +22,16 @@ struct Pose {
 //   turn      radians to turn right              (negative = turn left)
 //   look      radians to tilt up                 (negative = tilt down)
 //
-// THE BODY IS YOURS (camera math). Until it is written, the camera cannot move:
-// the viewer shows the same picture whatever key is held.
+// ORDER: turn first, then walk, so the walk uses the direction you just turned to.
+// Walking ignores pitch: W moves along the ground even while looking up or down.
+// y points down, so rising makes y smaller.
 inline void applyMove(Pose& pose, float forward, float right, float up, float turn, float look)
 {
-  // Nothing yet. These six lines only stop "unused" warnings; delete them when you write the body.
-  (void)pose;
-  (void)forward;
-  (void)right;
-  (void)up;
-  (void)turn;
-  (void)look;
+  pose.yaw += turn;
+  pose.pitch += look;
+  pose.x += forward * sinf(pose.yaw) + right * cosf(pose.yaw);
+  pose.z += -1 * right * sinf(pose.yaw) + forward * cosf(pose.yaw);
+  pose.y -= up;
 }
 
 #endif
