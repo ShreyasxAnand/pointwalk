@@ -9,6 +9,8 @@ a.out
 #md files
 CLAUDE.md
 PROGRESS.md
+PROGRESS_CHARTS.md
+progress_charts/
 
 # Program output (never committed)
 points.txt
