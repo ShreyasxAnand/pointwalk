@@ -1,5 +1,6 @@
 # Build output and binaries
 build/
+build_replay/
 *.o
 *.out
 *.exe
@@ -19,8 +20,12 @@ pixels.txt
 *.jpeg
 *.bmp
 *.bin
+*.mp4
+*.gif
+walk_timing.csv
 
 # Editor / OS / Jupyter
 .DS_Store
 .vscode/
 .ipynb_checkpoints/
+__pycache__/

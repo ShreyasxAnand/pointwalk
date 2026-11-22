@@ -11,9 +11,10 @@ aerial imagery and 360 panoramas.
 | --- | --- |
 | `src/` | CUDA sources (`.cu`) and shared C++ headers |
 | `tests/` | CPU-only tests, compiled locally with `g++` |
-| `viewer/` | The viewer's web server (`server.py`) and its page (`index.html`) |
+| `viewer/` | The viewer's web server (`server.py`), its page (`index.html`), and the scripted walk (`replay.py`) |
 | `notebooks/launcher.ipynb` | One Colab cell: clone or pull, compile, run, display |
 | `notebooks/viewer.ipynb` | One Colab cell: compile, start the viewer, show its page |
+| `notebooks/replay.ipynb` | One Colab cell: play a fixed walk on the GPU machine, show a video and a timing chart |
 
 ## Running
 
