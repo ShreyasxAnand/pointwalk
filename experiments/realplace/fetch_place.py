@@ -181,6 +181,12 @@ def main():
         f.write(points.tobytes())
         f.write(colours.tobytes())
 
+    # Two side files, one byte per dot, same order as the dots:
+    #   .labels  the survey's label (2 ground, 3-5 plants, 6 building, ...)
+    #   .conf    how much we trust the dot, 0 to 100. Everything the laser measured gets 100.
+    kind.tofile(args.out + ".labels")
+    np.full(len(points), 100, dtype=np.uint8).tofile(args.out + ".conf")
+
     # Opening camera: stand off to one side, up high, looking back down at the centre.
     bearing = math.radians(args.view_from)
     px, pz = args.view_distance * math.sin(bearing), args.view_distance * math.cos(bearing)

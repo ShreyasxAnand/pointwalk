@@ -1,6 +1,7 @@
 // TONIGHT'S EXPERIMENT: src/viewer.cu, changed in three places to show real lidar:
 //   1. the opening camera pose is read from "<scene file>.pose" (written by fetch_place.py)
-//   2. the first pass is splatKernel (kernels_real.h): each dot is a small square
+//   2. the first pass is splatKernel (kernels_real.h): each dot is a small square,
+//      and the second pass is resolveSkyKernel: empty boxes are sky, not black
 //   3. the dot's real-world width comes from the command line (default 0.3 m)
 // Everything else, including how it talks, is the same as src/viewer.cu.
 //
@@ -27,8 +28,7 @@
 #include "image.h"      // Color
 #include "pack.h"       // Packed, packDepthIndex
 #include "point.h"      // Point
-#include "kernels.h"    // resolveKernel (colorKernel is not used here)
-#include "kernels_real.h" // splatKernel
+#include "kernels_real.h" // splatKernel, resolveSkyKernel
 #include <string>
 #include "scenefile.h"  // readScene
 #include "move.h"       // Pose, applyMove
@@ -121,7 +121,7 @@ int main(int argc, char** argv) {
 
     CHECK(cudaEventRecord(kernelStart));
     splatKernel<<<dotBlocks, threads>>>(d_pts, N, cam, d_notes, dotSize);    // pass 1: notes, as small squares
-    resolveKernel<<<boxBlocks, threads>>>(d_notes, d_colors, W * H, d_image); // pass 2: picture
+    resolveSkyKernel<<<boxBlocks, threads>>>(d_notes, d_colors, cam, d_image); // pass 2: picture, sky where empty
     CHECK(cudaEventRecord(kernelEnd));
     CHECK(cudaEventSynchronize(kernelEnd));
     CHECK(cudaGetLastError());
