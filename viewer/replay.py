@@ -11,9 +11,13 @@ keeps every picture and every timing it sends back. At the end it writes:
 
 Start it with:
     python3 viewer/replay.py --renderer build/viewer --scene build/scene.bin --out build
+
+Add --start-pose FILE to begin the walk somewhere else. The file holds one line:
+x y z yaw pitch (the .pose file that fetch_place.py writes next to a real scene).
 """
 import argparse
 import csv
+import math
 import os
 import shutil
 import statistics
@@ -40,7 +44,7 @@ def read_exactly(stream, count):
     return data
 
 
-def play(renderer, scene):
+def play(renderer, scene, start_pose=None):
     """Run the walk. Returns (width, height, dots, rows, pictures)."""
     proc = subprocess.Popen([renderer, scene], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     try:
@@ -64,6 +68,14 @@ def play(renderer, scene):
         # and they would make the walk look worse than it is.
         for _ in range(3):
             one_picture("reset")
+
+        # Optional: go to the starting viewpoint in one move. applyMove turns first and then
+        # steps along the new heading, so these five amounts land exactly on the wanted pose.
+        if start_pose:
+            x, y, z, yaw, pitch = start_pose
+            one_picture("%f %f %f %f %f" % (
+                x * math.sin(yaw) + z * math.cos(yaw), x * math.cos(yaw) - z * math.sin(yaw),
+                -y, yaw, pitch))
 
         rows, pictures = [], []
         step = 1.0 / STEPS_PER_SECOND
@@ -209,9 +221,13 @@ def main():
     parser.add_argument("--renderer", required=True, help="path to the drawing program (build/viewer)")
     parser.add_argument("--scene", required=True, help="path to the scene file (build/scene.bin)")
     parser.add_argument("--out", default=".", help="folder for the video, the table and the chart")
+    parser.add_argument("--start-pose", help="file with one line: x y z yaw pitch, where the walk begins")
     args = parser.parse_args()
 
-    width, height, dots, rows, pictures = play(args.renderer, args.scene)
+    start_pose = None
+    if args.start_pose:
+        start_pose = [float(v) for v in open(args.start_pose).read().split()[:5]]
+    width, height, dots, rows, pictures = play(args.renderer, args.scene, start_pose)
     print(summary(rows, dots, width, height), flush=True)
     print("table:", write_csv(rows, args.out))
     print("chart:", write_chart(rows, dots, args.out) or "not made (matplotlib is missing)")
