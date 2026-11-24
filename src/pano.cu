@@ -123,6 +123,37 @@ int main() {
   if (cpuFilled == 0 || gpuFilled == 0)
     printf("NOT A PASS: a picture is empty, so there is nothing to compare yet\n");
 
+  // ---- Explain the boxes that differ (the first few of them) ----
+  // For each such box, find the dot behind the CPU's number and the dot behind
+  // the GPU's number. A dot is recognised by its distance: both machines get
+  // the identical distance for the same dot (+ - * and sqrtf are exact on
+  // both), so "same number" means "same dot". Then print where the CPU's
+  // arithmetic puts each of those dots. If the GPU's dot sits a hair from a
+  // box border, the two machines disagreed about which side of the border it
+  // is on, and nothing else is wrong.
+  const int maxExplained = 5;
+  int shown = 0;
+  for (int k = 0; k < numBoxes && shown < maxExplained; k++) {
+    if (cpuDepth[k] == gpuDepth[k]) continue;
+    shown++;
+    printf("box at column %d, row %d: CPU says %.6f m, GPU says %.6f m\n",
+           k % PW, k / PW, cpuDepth[k], gpuDepth[k]);
+    for (int i = 0; i < N; i++) {
+      float x, y, z, u, v, distance;
+      worldToSensor(pts[i].x, pts[i].y, pts[i].z, cam, x, y, z);
+      panoProject(x, y, z, PW, PH, u, v, distance);
+      bool isCpuDot = (distance == cpuDepth[k]);
+      bool isGpuDot = (distance == gpuDepth[k]);
+      if (!isCpuDot && !isGpuDot) continue;
+      // How far the dot is from the nearest border between two boxes, in boxes.
+      float toColumnBorder = fabsf(u - roundf(u));
+      float toRowBorder    = fabsf(v - roundf(v));
+      printf("  dot %d has the %s distance. On the CPU: u = %.5f, v = %.5f (column %d, row %d),\n"
+             "    %.5f of a box from a column border, %.5f of a box from a row border\n",
+             i, isCpuDot ? "CPU's" : "GPU's", u, v, (int)u, (int)v, toColumnBorder, toRowBorder);
+    }
+  }
+
   // ---- Save both pictures as grey images (near = white, far = dark, empty = black) ----
   const float dMin = 1.0f, dMax = 30.0f;
   std::vector<unsigned char> gray(numBoxes);
