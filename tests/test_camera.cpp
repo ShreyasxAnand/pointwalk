@@ -41,6 +41,16 @@ void expectSeen(const char* name, const Camera& cam,
     if (!ok) printf("      got (%f, %f, %f), expected (%f, %f, %f)\n", xc, yc, zc, ex, ey, ez);
 }
 
+// Check worldToSensor: where does the sensor see a world point (x, y, z)?
+void expectSensor(const char* name, const Camera& cam,
+                  float x, float y, float z, float ex, float ey, float ez) {
+    float xs, ys, zs;
+    worldToSensor(x, y, z, cam, xs, ys, zs);
+    bool ok = closeTo(xs, ex) && closeTo(ys, ey) && closeTo(zs, ez);
+    report(name, ok);
+    if (!ok) printf("      got (%f, %f, %f), expected (%f, %f, %f)\n", xs, ys, zs, ex, ey, ez);
+}
+
 int main(int argc, char const *argv[])
 {
     // TEST CASE 1: yaw 0, pitch 0, C = (0,0,0)   ->  R = identity, t = (0,0,0)
@@ -135,6 +145,29 @@ int main(int argc, char const *argv[])
             if (!closeTo(dot, i == j ? 1.0f : 0.0f)) rotation = false;
         }
     report("14. any pose: R is a pure rotation", rotation);
+
+    // ---- worldToSensor: the same re-measuring, as one function ----
+    // The expected numbers are the worked examples in the comment in camera.h.
+
+    // 15. Sensor in the middle of the floor at (0,0,15), not turned.
+    //     Subtract the sensor's position: (3, 1.5, 20) - (0, 0, 15) = (3, 1.5, 5).
+    setPose(cam, 0, 0, 15, 0, 0);
+    expectSensor("15. worldToSensor: floor dot is 3 right, 1.5 below, 5 ahead", cam, 3, 1.5f, 20,  3, 1.5f, 5);
+    //     The ball's centre is at z = 8, the sensor at z = 15: 7 m BEHIND (negative z).
+    //     Nothing is skipped: a dot behind the sensor still gets its three numbers.
+    expectSensor("15. worldToSensor: ball centre is 0.5 above, 7 behind", cam, 0, -0.5f, 8,  0, -0.5f, -7);
+
+    // 16. Turn right 90 degrees. What was ahead is now on the left (same as case 4).
+    setPose(cam, 0, 0, 0, rad(90), 0);
+    expectSensor("16. worldToSensor, yaw +90: point ahead is now on the left", cam, 0, 0, 5,  -5, 0, 0);
+
+    // 17. Turn right 90, then look straight up (same as case 12).
+    setPose(cam, 0, 0, 0, rad(90), rad(90));
+    expectSensor("17. worldToSensor, yaw +90, pitch +90: point overhead is ahead", cam, 0, -5, 0,  0, 0, 5);
+
+    // 18. For ANY pose, the sensor's own position comes out as (0,0,0) (same as case 13).
+    setPose(cam, 2, -1, 3, 0.7f, -0.4f);
+    expectSensor("18. worldToSensor, any pose: own position is (0,0,0)", cam, 2, -1, 3,  0, 0, 0);
 
     printf("\n%d check(s) failed\n", failures);
     return failures == 0 ? 0 : 1;   // non-zero makes run.sh stop and show the failure

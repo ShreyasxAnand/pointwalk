@@ -19,4 +19,15 @@ inline bool writePPM(const char* path, const Color* pixels, int W, int H) {
   return true;
 }
 
+// Save W x H grey values (0 = black, 255 = white) as a .pgm picture (row 0 is
+// the top row). Returns false if the file could not be opened.
+inline bool writePGM(const char* path, const unsigned char* gray, int W, int H) {
+  FILE* f = fopen(path, "wb");
+  if (!f) return false;
+  fprintf(f, "P5\n%d %d\n255\n", W, H);
+  fwrite(gray, 1, (size_t)W * H, f);
+  fclose(f);
+  return true;
+}
+
 #endif
