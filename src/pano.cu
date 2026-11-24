@@ -1,3 +1,4 @@
+#include <chrono>
 #include <cstdio>
 #include <vector>
 #include <cmath>
@@ -78,7 +79,10 @@ int main() {
 
   // ---- CPU picture ----
   std::vector<float> cpuDepth(numBoxes, 1e30f);        // every box starts "really far"
+  auto cpuStart = std::chrono::high_resolution_clock::now();
   panoDepthCPU(pts, cam, PW, PH, cpuDepth);
+  auto cpuEnd = std::chrono::high_resolution_clock::now();
+  double cpuMs = std::chrono::duration<double, std::milli>(cpuEnd - cpuStart).count();
 
   // ---- GPU picture ----
   Point* d_pts;
@@ -97,6 +101,34 @@ int main() {
   printf("kernel status: %s\n", cudaGetErrorString(cudaGetLastError()));
 
   cudaMemcpy(gpuDepth.data(), d_depth, numBoxes * sizeof(float), cudaMemcpyDeviceToHost);
+
+  // ---- Timing: the kernel alone, 20 times, keep the fastest (same method as bench.cu) ----
+  // The run above was the warm-up and the one that gets checked. Before every
+  // timed run the picture is reset to "really far", outside the stopwatch, so
+  // each run does the full work. The two events are stopwatch marks that the
+  // GPU itself records, so only the kernel is between them.
+  const int timedRuns = 20;
+  const std::vector<float> farDepth(numBoxes, 1e30f);
+  cudaEvent_t before, after;
+  cudaEventCreate(&before);
+  cudaEventCreate(&after);
+  float kernelMs = 1e30f;
+  for (int run = 0; run < timedRuns; run++) {
+    cudaMemcpy(d_depth, farDepth.data(), numBoxes * sizeof(float), cudaMemcpyHostToDevice);
+    cudaEventRecord(before);
+    panoDepthKernel<<<blocks, threads>>>(d_pts, N, cam, PW, PH, d_depth);
+    cudaEventRecord(after);
+    cudaEventSynchronize(after);                        // wait until the kernel has finished
+    float ms = 0.0f;
+    cudaEventElapsedTime(&ms, before, after);
+    kernelMs = fminf(kernelMs, ms);
+  }
+  cudaEventDestroy(before);
+  cudaEventDestroy(after);
+  printf("timing status: %s\n", cudaGetErrorString(cudaGetLastError()));
+  printf("360 picture of %d dots: CPU %.2f ms (one run), GPU kernel %.3f ms (fastest of %d)\n",
+         N, cpuMs, kernelMs, timedRuns);
+
   cudaFree(d_pts);
   cudaFree(d_depth);
 
