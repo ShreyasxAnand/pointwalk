@@ -194,8 +194,13 @@ python waymo/convert.py --input <folder> --segment <id> --out <dir>
 ```
 
 `<folder>` holds `lidar/`, `lidar_calibration/` and `vehicle_pose/`. It can be
-a local folder, `gs://...` or `s3://...`. The output for the checked segment
-is 2.07 GB in 997 files:
+a local folder, `gs://...` or `s3://...`.
+
+Add `--frames N` to write range images for the first N frames only (frame
+numbers 0 to N - 1). `calibration.bin` and `poses.bin` are always written
+whole. Two frames are 20.8 MB and take a few seconds.
+
+The full output for the checked segment is 2.07 GB in 997 files:
 
 ```
 <out>/calibration.bin

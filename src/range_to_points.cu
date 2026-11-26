@@ -49,7 +49,22 @@
 __global__ void rangeToPointsKernel(const float* ranges, int H, int W,
                                     const float* tiltOfRow, const float* turnOfColumn,
                                     SensorToScene place, Point* points) {
-  // yours
+  
+  const int box = blockIdx.x * blockDim.x + threadIdx.x;   // which box is mine?
+  if (box >= H * W) return;                                // extra thread, no box
+  const int row = box / W;   // how many full rows come before my box
+  const int col = box % W;   // what is left over: my place in the row
+  float range = ranges[row * W + col];
+  if (range <= rangeMinReturn) return;
+  float tilt = tiltOfRow[row];
+  float turn = turnOfColumn[col];
+  float xs, ys, zs;
+  panoUnproject(tilt, turn, range, xs, ys, zs);
+  float x, y, z;
+  sensorToScene(xs, ys, zs, place, x, y, z);
+  points[row * W + col].x = x;
+  points[row * W + col].y = y;
+  points[row * W + col].z = z;
 }
 
 int main(int argc, char** argv) {

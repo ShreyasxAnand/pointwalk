@@ -1,6 +1,7 @@
 """Convert one Waymo Open Dataset v2 segment from Parquet to plain binary files.
 
     python convert.py --input <folder> --segment <id> --out <dir>
+    python convert.py --input <folder> --segment <id> --out <dir> --frames 3
 
 <folder> holds lidar/, lidar_calibration/ and vehicle_pose/. It can be a local
 folder, gs://... or s3://...
@@ -14,6 +15,9 @@ What gets written (the byte layout is in DATA_FORMAT.md):
 
 No number is changed on the way: same order, same axes, same units as Waymo
 stores them. This file does no geometry.
+
+--frames N writes range images for the first N frames only (frame numbers 0 to
+N - 1). calibration.bin and poses.bin are small and are always written whole.
 """
 
 import argparse
@@ -74,8 +78,12 @@ def write_poses(fs, root, segment, out_dir):
     return frame_of
 
 
-def write_range_images(fs, root, segment, out_dir, frame_of):
-    """Write one file per (frame, laser). Returns {laser: (H, W, C)} and the byte total."""
+def write_range_images(fs, root, segment, out_dir, frame_of, lasers, max_frames=None):
+    """Write one file per (frame, laser). Returns {laser: (H, W, C)}, the pairs written and the byte total.
+
+    max_frames: write only frames 0 to max_frames - 1, and stop reading the
+    lidar table as soon as all of those are written. None means every frame.
+    """
     path = wod.require_table(fs, root, "lidar", segment)
     range_dir = os.path.join(out_dir, "range")
     os.makedirs(range_dir, exist_ok=True)
@@ -84,6 +92,8 @@ def write_range_images(fs, root, segment, out_dir, frame_of):
     shapes = {}
     written = set()
     total_bytes = 0
+    num_frames = len(frame_of) if max_frames is None else min(max_frames, len(frame_of))
+    wanted = num_frames * len(lasers)   # how many files there will be when nothing is missing
     with fs.open(path, "rb") as source:
         parquet = pq.ParquetFile(source)
         # batch_size=1: one row, which is one laser of one frame, is in memory
@@ -97,6 +107,8 @@ def write_range_images(fs, root, segment, out_dir, frame_of):
             if timestamp not in frame_of:
                 raise SystemExit(f"lidar row at timestamp {timestamp} has no row in vehicle_pose")
             frame = frame_of[timestamp]
+            if frame >= num_frames:
+                continue   # past the --frames limit
             H, W, C = shape
             if values.size != H * W * C:
                 raise SystemExit(f"frame {frame} laser {laser}: {values.size} values, but shape {shape} needs {H * W * C}")
@@ -114,7 +126,9 @@ def write_range_images(fs, root, segment, out_dir, frame_of):
             total_bytes += 36 + values.nbytes
 
             if laser == min(shapes) and frame % 20 == 0:
-                print(f"  frame {frame} of {len(frame_of)}", flush=True)
+                print(f"  frame {frame} of {num_frames}", flush=True)
+            if max_frames is not None and len(written) >= wanted:
+                break   # everything asked for is written: do not read the rest of the table
     return shapes, written, total_bytes
 
 
@@ -123,7 +137,10 @@ def main():
     parser.add_argument("--input", required=True, help="folder holding lidar/, lidar_calibration/, vehicle_pose/ (local, gs:// or s3://)")
     parser.add_argument("--segment", required=True, help="segment id: a file name in those folders, without .parquet")
     parser.add_argument("--out", required=True, help="local folder to write into (created if missing)")
+    parser.add_argument("--frames", type=int, help="write range images for the first N frames only (default: every frame)")
     args = parser.parse_args()
+    if args.frames is not None and args.frames < 1:
+        raise SystemExit("--frames must be 1 or more")
 
     fs, root = wod.open_dataset(args.input)
     # Stop before creating anything if one of the three tables is missing.
@@ -137,7 +154,11 @@ def main():
     frame_of = write_poses(fs, root, args.segment, args.out)
     print(f"poses.bin: {len(frame_of)} frames")
 
-    shapes, written, total_bytes = write_range_images(fs, root, args.segment, args.out, frame_of)
+    shapes, written, total_bytes = write_range_images(fs, root, args.segment, args.out, frame_of,
+                                                      lasers, args.frames)
+    num_frames = len(frame_of) if args.frames is None else min(args.frames, len(frame_of))
+    if args.frames is not None:
+        print(f"--frames {args.frames}: range images for frames 0 to {num_frames - 1} only")
     for laser in sorted(shapes):
         H, W, C = shapes[laser]
         count = sum(1 for (_, l) in written if l == laser)
@@ -145,7 +166,7 @@ def main():
     print(f"range/: {len(written)} files, {total_bytes / 1e6:.1f} MB")
 
     # Say so if the three tables disagree about which frames and lasers exist.
-    missing = [(frame, laser) for frame in frame_of.values() for laser in lasers
+    missing = [(frame, laser) for frame in range(num_frames) for laser in lasers
                if (frame, laser) not in written]
     if missing:
         print(f"WARNING: {len(missing)} (frame, laser) pairs have no range image, first: {missing[:5]}")

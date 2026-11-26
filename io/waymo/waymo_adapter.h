@@ -10,6 +10,8 @@
 // The raw facts are in waymo/DATA_FORMAT.md. The four questions it leaves open
 // ("Not in this file, on purpose") are the ones these functions answer.
 
+#include <cmath>       // atan2
+#include <stdexcept>   // std::invalid_argument
 #include <vector>
 #include "waymofile.h"                // WaymoLaserCalibration
 #include "../../src/rangepoints.h"    // SensorToScene
@@ -32,7 +34,11 @@
 inline void waymoTiltOfRow(const WaymoLaserCalibration& cal, int H,
                            std::vector<float>& tiltOfRow)
 {
-  // yours
+  tiltOfRow.resize(H);
+  if (cal.beamValues.size() != H) throw std::invalid_argument("beamValues size mismatch");
+  for (int row = 0; row < H; row++) {
+    tiltOfRow[row] = -static_cast<float>(cal.beamValues[H - 1 -row]); // flip tilt directions, waymo lists beams lowest first with +up, rangepoints.h lists highest first with +down, so reverse order and negative
+  }
 }
 
 // waymoTurnOfColumn: the turn of every image column, for function A.
@@ -54,7 +60,12 @@ inline void waymoTiltOfRow(const WaymoLaserCalibration& cal, int H,
 inline void waymoTurnOfColumn(const WaymoLaserCalibration& cal, int W,
                               std::vector<float>& turnOfColumn)
 {
-  // yours
+  turnOfColumn.resize(W);
+  const double pi = 3.14159265358979323846;
+  double az_correction = atan2(cal.extrinsic[4], cal.extrinsic[0]);
+  for (int col = 0; col < W; col++) {
+    turnOfColumn[col] = static_cast<float>(-(pi - (col + 0.5) * 2.0 * pi / W) + az_correction);
+  }
 }
 
 // waymoSensorToVehicle: where the laser sits on the car, for function B.
@@ -75,7 +86,34 @@ inline void waymoTurnOfColumn(const WaymoLaserCalibration& cal, int W,
 //   c. Do the arithmetic in double, and turn the result into float last.
 inline void waymoSensorToVehicle(const WaymoLaserCalibration& cal, SensorToScene& place)
 {
-  // yours
+  // Waymo's matrix, 16 numbers read row by row:
+  //    [0]  [1]  [2]  | [3]     rows and columns are Waymo's x, y, z
+  //    [4]  [5]  [6]  | [7]     the last column is the shift
+  //    [8]  [9]  [10] | [11]
+  //
+  // The axes:   your x (right)   = minus Waymo's y (left)
+  //             your y (down)    = minus Waymo's z (up)
+  //             your z (forward) =       Waymo's x (forward)
+  const double* E = cal.extrinsic;
+
+  // The shift: Waymo's (x, y, z) shift is E[3], E[7], E[11].
+  place.t[0] = static_cast<float>(-E[7]);    // right   = minus left
+  place.t[1] = static_cast<float>(-E[11]);   // down    = minus up
+  place.t[2] = static_cast<float>( E[3]);    // forward = forward
+
+  // The rotation. A minus for every x or y of yours that is involved:
+  // none or two of them -> plus, exactly one of them -> minus.
+  place.R[0][0] = static_cast<float>( E[5]);    // your x from your x:  Waymo y from y
+  place.R[0][1] = static_cast<float>( E[6]);    // your x from your y:  Waymo y from z
+  place.R[0][2] = static_cast<float>(-E[4]);    // your x from your z:  Waymo y from x
+
+  place.R[1][0] = static_cast<float>( E[9]);    // your y from your x:  Waymo z from y
+  place.R[1][1] = static_cast<float>( E[10]);   // your y from your y:  Waymo z from z
+  place.R[1][2] = static_cast<float>(-E[8]);    // your y from your z:  Waymo z from x
+
+  place.R[2][0] = static_cast<float>(-E[1]);    // your z from your x:  Waymo x from y
+  place.R[2][1] = static_cast<float>(-E[2]);    // your z from your y:  Waymo x from z
+  place.R[2][2] = static_cast<float>( E[0]);    // your z from your z:  Waymo x from x
 }
 
 #endif
