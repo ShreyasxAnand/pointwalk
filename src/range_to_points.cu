@@ -191,7 +191,13 @@ int main(int argc, char** argv) {
   }
 
   // ---- Save the GPU's dots as a scene file, boxes with no return left out ----
-  // All white for now. The viewer takes the file's path: ./viewer <this file>
+  // The viewer takes the file's path: ./viewer <this file>
+  //
+  // Each dot is a shade of grey from how strongly its echo came back (channel 1
+  // of the range image, "intensity"). Most echoes are weak, around 0.1, and a
+  // few are very strong (road signs, number plates), so the root is taken to
+  // spread the weak ones out, and everything from 1 up is full white. No dot
+  // is darker than 50, so every dot can be seen. Without channel 1: all white.
   std::vector<Point> pts;
   std::vector<Color> colors;
   pts.reserve(numReturns);
@@ -199,7 +205,13 @@ int main(int argc, char** argv) {
   for (int box = 0; box < numBoxes; box++) {
     if (!(ranges[box] > rangeMinReturn)) continue;
     pts.push_back(gpuPoints[box]);
-    colors.push_back(Color{255, 255, 255});
+    unsigned char grey = 255;
+    if (image.C > 1) {
+      float intensity = image.values[(size_t)box * image.C + 1];
+      float s = sqrtf(fminf(fmaxf(intensity, 0.0f), 1.0f));   // 0 to 1
+      grey = (unsigned char)(50.0f + 205.0f * s);
+    }
+    colors.push_back(Color{grey, grey, grey});
   }
   char scenePath[64];
   snprintf(scenePath, sizeof scenePath, "frame%04d_laser%d_points.bin", frame, laser);
