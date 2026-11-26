@@ -28,6 +28,9 @@ pixels.txt
 *.gif
 walk_timing.csv
 
+# Reference material from others (Waymo's tutorial notebook)
+references/
+
 # Editor / OS / Jupyter
 .DS_Store
 .vscode/

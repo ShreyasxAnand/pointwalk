@@ -1,0 +1,15 @@
+# For waymo/convert.py and waymo/inspect_segment.py.
+#   pip install -r waymo/requirements.txt
+# gcsfs is only needed for gs:// paths, s3fs only for s3:// paths.
+# fsspec, gcsfs and s3fs are released together: keep the three on one version.
+
+pandas==2.3.3
+pyarrow==21.0.0
+fsspec==2025.10.0
+gcsfs==2025.10.0
+s3fs==2025.10.0
+
+# numpy 2.0.2 is the last numpy for Python 3.9 (the Pointwalk conda env).
+# It has no build for Python 3.13 (Colab), so newer Pythons get 2.2.6.
+numpy==2.0.2; python_version < "3.10"
+numpy==2.2.6; python_version >= "3.10"
