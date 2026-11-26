@@ -79,6 +79,32 @@ void expectPlaced(const char* name, const SensorToScene& place,
     if (!ok) printf("      got (%f, %f, %f), expected (%f, %f, %f)\n", x, y, z, ex, ey, ez);
 }
 
+// Run one scene dot through sceneToSensor and check where the sensor sees it.
+void expectSeen(const char* name, const SensorToScene& place,
+                float x, float y, float z, float exs, float eys, float ezs) {
+    float xs, ys, zs;
+    sceneToSensor(x, y, z, place, xs, ys, zs);
+    bool ok = closeTo(xs, exs) && closeTo(ys, eys) && closeTo(zs, ezs);
+    report(name, ok);
+    if (!ok) printf("      got (%f, %f, %f), expected (%f, %f, %f)\n", xs, ys, zs, exs, eys, ezs);
+}
+
+// Run one dot through panoAngles and check the tilt, the turn and the distance.
+// The expected tilt and turn are given in degrees, to keep the table readable.
+// An angle counts as right when it is within 0.00001 radians (0.0006 degrees):
+// at 75 m that is under a millimetre sideways.
+void expectAngles(const char* name, float x, float y, float z,
+                  float eTiltDegrees, float eTurnDegrees, float eDistance) {
+    float tilt, turn, distance;
+    panoAngles(x, y, z, tilt, turn, distance);
+    bool ok = fabsf(tilt - rad(eTiltDegrees)) < 1e-5f && fabsf(turn - rad(eTurnDegrees)) < 1e-5f
+           && closeTo(distance, eDistance);
+    report(name, ok);
+    if (!ok) printf("      got tilt %f, turn %f (radians), distance %f\n"
+                    "      expected tilt %f, turn %f, distance %f\n",
+                    tilt, turn, distance, rad(eTiltDegrees), rad(eTurnDegrees), eDistance);
+}
+
 // Check one dot of a finished list against the dot we expect in that box.
 void expectBox(const char* name, const std::vector<Point>& points, int W, int row, int col,
                float ex, float ey, float ez) {
@@ -285,6 +311,143 @@ int main()
         std::vector<Point> points(1, Point{0.0f, 0.0f, 0.0f});
         rangeToPointsCPU(one, 1, 1, {rad(0.0f)}, {rad(90.0f)}, still, points);
         expectBox("41. 0.4 m to the right is kept", points, 1, 0, 0,   0.4f, 0.0f, 0.0f);
+    }
+
+    // =======================================================================
+    // Part 5. sceneToSensor: function B backwards.
+    // The placements are the ones from part 3, and most checks are a part-3
+    // check read from right to left.
+    // =======================================================================
+
+    // ---- Not turned, not moved: the dot stays where it is ----
+    expectSeen("42. back: not turned, not moved", still, 1.0f, 2.0f, 3.0f,   1.0f, 2.0f, 3.0f);
+
+    // ---- Moved only: the shift is taken off (check 23 backwards) ----
+    expectSeen("43. back: moved only", moved, 11.0f, 1.0f, 3.5f,   1.0f, 2.0f, 3.0f);
+
+    // ---- Turned only (checks 24, 25 and 26 backwards) ----
+    expectSeen("44. back: turned right, a dot ahead", turned, 5.0f, 0.0f, 0.0f,   0.0f, 0.0f, 5.0f);
+    // This one tells the flipped R from R itself: R as it is gives x = -2.
+    expectSeen("45. back: turned right, a dot to the right", turned, 0.0f, 0.0f, -2.0f,   2.0f, 0.0f, 0.0f);
+    expectSeen("46. back: turned right, a dot below", turned, 0.0f, 3.0f, 0.0f,   0.0f, 3.0f, 0.0f);
+
+    // ---- Turned and moved: the worked example ----
+    // Scene dot (10, 0, -2), sensor at (10, 0, 0) facing 90 degrees right.
+    //   1. take the shift off:   (10, 0, -2) - (10, 0, 0) = (0, 0, -2)
+    //   2. turn back (flipped R): 2 m behind in the scene is 2 m to the
+    //      sensor's right                                  = (2, 0, 0)
+    // Turning back first and taking the shift off after gives (-8, 0, 10).
+    // Using R as it is, not flipped, gives (-2, 0, 0).
+    expectSeen("47. back: the worked example", both, 10.0f, 0.0f, -2.0f,   2.0f, 0.0f, 0.0f);
+    expectSeen("48. back: turned and moved (check 27)", both, 15.0f, 0.0f, 0.0f,   0.0f, 0.0f, 5.0f);
+
+    // ---- A placement that is turned, tilted and moved ----
+    // Built from a camera pose the same way as in check 28. Two judges:
+    //   49. there and back: sensorToScene, then sceneToSensor, returns the dot
+    //   50. sceneToSensor gives what your own worldToSensor (step 1) gives
+    {
+        Camera cam;
+        setPose(cam, 2.0f, -1.5f, 15.0f, rad(40.0f), rad(-10.0f));
+        SensorToScene placed;
+        for (int r = 0; r < 3; r++)
+            for (int c = 0; c < 3; c++) placed.R[r][c] = cam.R[c][r];
+        placed.t[0] = 2.0f; placed.t[1] = -1.5f; placed.t[2] = 15.0f;
+
+        const Point dots[] = {{3.0f, 1.5f, 20.0f}, {0.0f, -0.5f, 8.0f}, {-6.0f, 2.0f, 11.0f},
+                              {30.8f, 18.4f, -49.3f}, {0.0f, 0.0f, 0.0f}};
+        bool thereAndBack = true, sameAsCamera = true;
+        for (const Point& dot : dots) {
+            // 49: the dot is "seen from the sensor"; place it, then take it back.
+            float x, y, z, bx, by, bz;
+            sensorToScene(dot.x, dot.y, dot.z, placed, x, y, z);
+            sceneToSensor(x, y, z, placed, bx, by, bz);
+            if (!(closeTo(bx, dot.x) && closeTo(by, dot.y) && closeTo(bz, dot.z))) {
+                thereAndBack = false;
+                printf("      started at (%f, %f, %f), came back as (%f, %f, %f)\n",
+                       dot.x, dot.y, dot.z, bx, by, bz);
+            }
+            // 50: the dot is "in the scene"; both functions must see it the same.
+            float cx, cy, cz, sx, sy, sz;
+            worldToSensor(dot.x, dot.y, dot.z, cam, cx, cy, cz);
+            sceneToSensor(dot.x, dot.y, dot.z, placed, sx, sy, sz);
+            if (!(closeTo(sx, cx) && closeTo(sy, cy) && closeTo(sz, cz))) {
+                sameAsCamera = false;
+                printf("      dot (%f, %f, %f): worldToSensor says (%f, %f, %f), sceneToSensor says (%f, %f, %f)\n",
+                       dot.x, dot.y, dot.z, cx, cy, cz, sx, sy, sz);
+            }
+        }
+        report("49. sensorToScene and then sceneToSensor returns the dot", thereAndBack);
+        report("50. sceneToSensor agrees with worldToSensor", sameAsCamera);
+    }
+
+    // =======================================================================
+    // Part 6. panoAngles: function A backwards.
+    // Most checks are a part-1 check read from right to left.
+    // =======================================================================
+
+    //                                              x       y      z       tilt    turn   distance
+    // The worked example: 2 m to the right, level. Nothing ahead, so the turn
+    // is a full 90 degrees. Nothing up or down, so the tilt is 0.
+    expectAngles("51. angles: the worked example",  2.0f,   0.0f,  0.0f,    0.0f,   90.0f, 2.0f);
+    expectAngles("52. angles: straight ahead",      0.0f,   0.0f,  1.0f,    0.0f,    0.0f, 1.0f);
+    expectAngles("53. angles: directly left",      -3.0f,   0.0f,  0.0f,    0.0f,  -90.0f, 3.0f);
+    expectAngles("54. angles: directly behind",     0.0f,   0.0f, -5.0f,    0.0f,  180.0f, 5.0f);
+    expectAngles("55. angles: behind and left",    -1.0f,   0.0f, -1.0f,    0.0f, -135.0f, 1.414214f);
+
+    // ---- Tilted: a dot below (y positive) must give a positive tilt ----
+    expectAngles("56. angles: straight down",       0.0f,   2.0f,  0.0f,   90.0f,    0.0f, 2.0f);
+    expectAngles("57. angles: straight up",         0.0f,  -3.0f,  0.0f,  -90.0f,    0.0f, 3.0f);
+    expectAngles("58. angles: ahead and below",     0.0f,   4.0f,  4.0f,   45.0f,    0.0f, 5.656854f);
+
+    // ---- Tilt and turn together (checks 11 and 12 backwards) ----
+    expectAngles("59. angles: ahead, right and above", 6.0f, -10.0f, 8.0f,  -45.0f, 36.869898f, 14.142136f);
+    expectAngles("60. angles: ahead, right and below", 3.0f,   5.0f, 4.0f,   45.0f, 36.869898f,  7.071068f);
+
+    // ---- There and back: angles -> panoUnproject -> panoAngles -> the same angles ----
+    // The tilts and turns are the kind a real laser has, plus some far out.
+    {
+        bool ok = true;
+        const float tilts[] = {-80.0f, -17.0f, 0.0f, 2.3f, 17.6f, 60.0f};
+        const float turns[] = {-170.0f, -90.0f, -1.0f, 0.0f, 33.0f, 148.0f};
+        for (float tiltDegrees : tilts)
+            for (float turnDegrees : turns) {
+                float x, y, z, tilt, turn, distance;
+                panoUnproject(rad(tiltDegrees), rad(turnDegrees), 61.0f, x, y, z);
+                panoAngles(x, y, z, tilt, turn, distance);
+                if (!(fabsf(tilt - rad(tiltDegrees)) < 1e-5f && fabsf(turn - rad(turnDegrees)) < 1e-5f
+                      && closeTo(distance, 61.0f))) {
+                    ok = false;
+                    printf("      went in: tilt %f, turn %f, distance 61\n"
+                           "      came back: tilt %f, turn %f, distance %f\n",
+                           rad(tiltDegrees), rad(turnDegrees), tilt, turn, distance);
+                }
+            }
+        report("61. angles -> dot -> panoAngles gives the same angles (36 directions)", ok);
+    }
+
+    // ---- The judge from step 4: panoAngles must agree with your panoProject ----
+    // panoProject reports the turn as a column and the tilt as a row. In a
+    // picture 1024 wide and 512 tall, column = (turn + pi) * 1024 / (2 * pi)
+    // and row = (tilt + pi / 2) * 512 / pi.
+    {
+        const int PW = 1024, PH = 512;
+        const Point dots[] = {{3.0f, 1.5f, 20.0f}, {-7.0f, 1.5f, -12.0f}, {6.0f, -10.0f, 8.0f},
+                              {30.8f, 18.4f, -49.3f}};
+        bool ok = true;
+        for (const Point& dot : dots) {
+            float u, v, panoDistance, tilt, turn, distance;
+            panoProject(dot.x, dot.y, dot.z, PW, PH, u, v, panoDistance);
+            panoAngles(dot.x, dot.y, dot.z, tilt, turn, distance);
+            float uFromTurn = (turn + pi) * PW / (2 * pi);
+            float vFromTilt = (tilt + pi / 2) * PH / pi;
+            if (!(fabsf(u - uFromTurn) < 1e-3f && fabsf(v - vFromTilt) < 1e-3f && distance == panoDistance)) {
+                ok = false;
+                printf("      dot (%f, %f, %f): panoProject says column %f, row %f, distance %f\n"
+                       "      panoAngles says column %f, row %f, distance %f\n",
+                       dot.x, dot.y, dot.z, u, v, panoDistance, uFromTurn, vFromTilt, distance);
+            }
+        }
+        report("62. panoAngles agrees with panoProject", ok);
     }
 
     printf("\n%d check(s) failed\n", failures);

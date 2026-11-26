@@ -4,7 +4,8 @@
 #include <vector>
 #include "image.h"         // Color
 #include "point.h"         // Point
-#include "rangepoints.h"   // panoUnproject, sensorToScene, rangeToPointsCPU, rangeMinReturn
+#include "rangepoints.h"   // panoUnproject, sensorToScene, rangeToPointsCPU, rangeMinReturn,
+                           // and for the round trip: sceneToSensor, panoAngles
 #include "scenefile.h"     // writeScene: saves the dots so the viewer can show them
 #include "../io/waymo/waymofile.h"       // readWaymoRange, readWaymoCalibration (raw)
 #include "../io/waymo/waymo_adapter.h"   // raw Waymo numbers -> the kernel's plain inputs
@@ -65,6 +66,34 @@ __global__ void rangeToPointsKernel(const float* ranges, int H, int W,
   points[row * W + col].x = x;
   points[row * W + col].y = y;
   points[row * W + col].z = z;
+}
+
+// The two list searches for the round trip in main(). They undo the adapter's
+// two lists: an angle goes in, the number of the row or column comes out.
+
+// nearestRow: which row's tilt is closest to this tilt?
+// The rows are not evenly spaced, so it looks at every row. There are only 64.
+static int nearestRow(float tilt, const std::vector<float>& tiltOfRow) {
+  int best = 0;
+  for (int row = 1; row < (int)tiltOfRow.size(); row++)
+    if (fabsf(tiltOfRow[row] - tilt) < fabsf(tiltOfRow[best] - tilt)) best = row;
+  return best;
+}
+
+// nearestColumn: which column's turn is closest to this turn?
+// This one counts on two things about the list: the columns are evenly spaced,
+// and together they cover one full circle. Then the column is "how many steps
+// past column 0", and a count that falls off either end wraps round to the
+// other end (a turn of -170 degrees and one of +190 degrees are the same
+// direction).
+static int nearestColumn(float turn, const std::vector<float>& turnOfColumn) {
+  const int W = (int)turnOfColumn.size();
+  if (W < 2) return 0;
+  const double step = ((double)turnOfColumn[W - 1] - turnOfColumn[0]) / (W - 1);
+  long col = lround(((double)turn - turnOfColumn[0]) / step);
+  col %= W;
+  if (col < 0) col += W;
+  return (int)col;
 }
 
 int main(int argc, char** argv) {
@@ -174,8 +203,52 @@ int main(int argc, char** argv) {
   printf("GPU vs CPU dots: %d of %d differ\n", differ, numReturns);
   printf("  largest difference in x, y or z: %f m\n", largestGap);
   printf("  dots left at (0, 0, 0): CPU %d, GPU %d\n", cpuAtZero, gpuAtZero);
+  // The pass rule, decided on 2026-11-26. The dots are not expected to be
+  // identical: the GPU's sinf and cosf round their last digit differently from
+  // the CPU's (seen on the T4: 33673 of 149796 differ, by at most 0.000015 m).
+  // The kernel passes when no dot is off by 0.1 mm or more.
+  const float maxAllowedGap = 0.0001f;   // metres
   if (numReturns == 0 || cpuAtZero == numReturns || gpuAtZero == numReturns)
     printf("NOT A PASS: one side made no dots, so there is nothing to compare yet\n");
+  else if (largestGap < maxAllowedGap)
+    printf("PASS: no dot is off by %.1f mm or more\n", maxAllowedGap * 1000.0f);
+  else
+    printf("NOT A PASS: a dot is off by %.4f mm, the limit is %.1f mm\n", largestGap * 1000.0f, maxAllowedGap * 1000.0f);
+
+  // ---- Step 7's check, the round trip: every GPU dot back to row, column and range ----
+  //   1. sceneToSensor   the dot, measured from the laser again   (function B backwards)
+  //   2. panoAngles      its tilt, turn and distance              (function A backwards)
+  //   3. the two list searches: which row has that tilt, which column has that turn
+  // A dot passes when it lands in the box it came from. The distance must match
+  // the range that was in that box, within the same 0.1 mm as above.
+  int wrongBox = 0;
+  float largestRangeGap = 0.0f;
+  for (int box = 0; box < numBoxes; box++) {
+    if (!(ranges[box] > rangeMinReturn)) continue;
+    const Point& g = gpuPoints[box];
+    float xs, ys, zs, tilt, turn, distance;
+    sceneToSensor(g.x, g.y, g.z, place, xs, ys, zs);
+    panoAngles(xs, ys, zs, tilt, turn, distance);
+    const int row = nearestRow(tilt, tiltOfRow);
+    const int col = nearestColumn(turn, turnOfColumn);
+    if (row != box / W || col != box % W) {
+      wrongBox++;
+      if (wrongBox <= 3)
+        printf("  round trip: the dot from row %d, column %d came back to row %d, column %d\n",
+               box / W, box % W, row, col);
+    }
+    largestRangeGap = fmaxf(largestRangeGap, fabsf(distance - ranges[box]));
+  }
+  printf("round trip: %d of %d dots came back to their own row and column\n", numReturns - wrongBox, numReturns);
+  printf("  largest difference in range: %f m\n", largestRangeGap);
+  if (numReturns == 0)
+    printf("NOT A PASS: there are no dots to take back\n");
+  else if (wrongBox == 0 && largestRangeGap < maxAllowedGap)
+    printf("PASS: every dot came back to its own row, column and range\n");
+  else if (wrongBox > 0)
+    printf("NOT A PASS: %d dots came back to a different row or column\n", wrongBox);
+  else
+    printf("NOT A PASS: a range is off by %.4f mm, the limit is %.1f mm\n", largestRangeGap * 1000.0f, maxAllowedGap * 1000.0f);
 
   // ---- Show the first few dots, to compare by eye with numbers worked out by hand ----
   int shown = 0;

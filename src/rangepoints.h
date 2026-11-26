@@ -89,6 +89,71 @@ HD inline void sensorToScene(float xs, float ys, float zs, const SensorToScene& 
   z = place.R[2][0] * xs + place.R[2][1] * ys + place.R[2][2] * zs + place.t[2];
 }
 
+// FUNCTION B BACKWARDS. sceneToSensor: a dot in the scene, measured from the
+// sensor again. Used by the round-trip check (dot -> row, column, range).
+//
+// Function B did two things: turn the dot with R, then add the shift t.
+// Undo them in the opposite order:
+//   1. take the shift off
+//   2. turn the dot back. R is a pure turn, so the turn back is R flipped over
+//      its diagonal: the same nine numbers, read down the columns instead of
+//      along the rows.
+//
+// INPUTS
+//   x, y, z      the dot in scene coordinates, in metres
+//   place        where the sensor sits in the scene (the same one function B got)
+//
+// OUTPUTS
+//   xs, ys, zs   the dot in steps from the sensor: x right, y DOWN, z ahead
+//
+// WORKED EXAMPLE (check 47 in tests/test_rangepoints.cpp)
+//   sensor at (10, 0, 0), facing 90 degrees right; scene dot (10, 0, -2)
+//   1. (10, 0, -2) - (10, 0, 0) = (0, 0, -2)
+//   2. turned back              = (2, 0, 0): 2 m to the sensor's right
+HD inline void sceneToSensor(float x, float y, float z, const SensorToScene& place,
+                             float& xs, float& ys, float& zs)
+{
+  // 1. take the shift off
+  float dx = x - place.t[0];
+  float dy = y - place.t[1];
+  float dz = z - place.t[2];
+
+  // 2. turn back. Compare with function B: there it is R[0][0], R[0][1], R[0][2]
+  //    along a row. Here it is R[0][0], R[1][0], R[2][0] down a column.
+  xs = place.R[0][0] * dx + place.R[1][0] * dy + place.R[2][0] * dz;
+  ys = place.R[0][1] * dx + place.R[1][1] * dy + place.R[2][1] * dz;
+  zs = place.R[0][2] * dx + place.R[1][2] * dy + place.R[2][2] * dz;
+}
+
+// FUNCTION A BACKWARDS. panoAngles: a dot seen from the sensor -> the tilt, the
+// turn and the distance that function A would make it from. Used by the
+// round-trip check.
+//
+// These are the same lines as inside panoProject (pano.h). panoProject goes one
+// step further and changes the turn into a column and the tilt into a row of an
+// evenly spaced picture. A laser's rows are not evenly spaced, so here the
+// angles are handed back as they are.
+//
+// INPUTS
+//   x, y, z    the dot, in steps from the sensor: x right, y DOWN, z ahead
+//
+// OUTPUTS
+//   tilt       radians. 0 level, positive down. From -pi/2 to +pi/2.
+//   turn       radians. 0 straight ahead, positive to the right. From -pi to +pi.
+//   distance   the straight-line distance to the dot, in metres
+//
+// WORKED EXAMPLE (check 51 in tests/test_rangepoints.cpp)
+//   the dot (2, 0, 0): 2 m to the right, level
+//   turn 90 degrees, tilt 0, distance 2
+HD inline void panoAngles(float x, float y, float z,
+                          float& tilt, float& turn, float& distance)
+{
+  turn = atan2f(x, z);                              // sideways against ahead
+  distance = sqrtf(x * x + y * y + z * z);
+  float horizontalDistance = sqrtf(x * x + z * z);  // how far away along the ground
+  tilt = atan2f(y, horizontalDistance);             // down against along the ground
+}
+
 // rangeToPointsCPU: turn a whole range image into dots, on the CPU.
 // This is the slow, obviously-right version the GPU kernel gets compared with.
 //
