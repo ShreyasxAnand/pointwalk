@@ -33,12 +33,12 @@ inline bool rangeToVehicleGPU(const SensorModel& sensor, const RangeFrame& frame
             H, W, frame.H, frame.W);
     return false;
   }
-  const size_t numBoxes = (size_t)H * W;
-  if (sensor.tiltOfRow.size() != (size_t)H) {
+  const size_t numBoxes = static_cast<size_t>(H) * W;
+  if (sensor.tiltOfRow.size() != static_cast<size_t>(H)) {
     fprintf(stderr, "rangeToVehicleGPU: tiltOfRow has %zu entries, H is %d\n", sensor.tiltOfRow.size(), H);
     return false;
   }
-  if (sensor.turnOfColumn.size() != (size_t)W) {
+  if (sensor.turnOfColumn.size() != static_cast<size_t>(W)) {
     fprintf(stderr, "rangeToVehicleGPU: turnOfColumn has %zu entries, W is %d\n", sensor.turnOfColumn.size(), W);
     return false;
   }
@@ -64,7 +64,7 @@ inline bool rangeToVehicleGPU(const SensorModel& sensor, const RangeFrame& frame
   CHECK(cudaMemcpy(d_turnOfColumn, sensor.turnOfColumn.data(), W * sizeof(float), cudaMemcpyHostToDevice));
 
   const int threads = 256;
-  const int blocks = (int)((numBoxes + threads - 1) / threads);   // round up to cover every box
+  const int blocks = static_cast<int>((numBoxes + threads - 1) / threads);   // round up to cover every box
   rangeToVehicleKernel<<<blocks, threads>>>(d_ranges, H, W, d_tiltOfRow, d_turnOfColumn, sensor.mount, d_points);
   CHECK(cudaGetLastError());
   CHECK(cudaDeviceSynchronize());

@@ -23,7 +23,7 @@ const float waymoGreySpan = 205.0f;      // darkest + span = 255, the strongest 
 // Out: a grey Color.
 inline Color waymoGreyOfIntensity(float intensity) {
   const float s = sqrtf(fminf(fmaxf(intensity, 0.0f), 1.0f));
-  const unsigned char grey = (unsigned char)(waymoGreyDarkest + waymoGreySpan * s);
+  const unsigned char grey = static_cast<unsigned char>(waymoGreyDarkest + waymoGreySpan * s);
   return Color{grey, grey, grey};
 }
 
@@ -77,7 +77,7 @@ inline bool loadWaymoFrame(const char* folder, int frameNumber, int laser, Range
 
   frame.H = image.H;
   frame.W = image.W;
-  const size_t numBoxes = (size_t)image.H * image.W;
+  const size_t numBoxes = static_cast<size_t>(image.H) * image.W;
   frame.ranges.resize(numBoxes);
   frame.colors.resize(numBoxes);
   for (size_t box = 0; box < numBoxes; box++) {

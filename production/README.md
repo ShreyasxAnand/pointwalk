@@ -7,12 +7,12 @@ Builds a point cloud from Waymo lidar data, on the GPU.
 | Stage | What | File |
 | --- | --- | --- |
 | 1 | Waymo Parquet -> plain `.bin` files (once per segment) | `waymo/convert.py` |
-| 2 | Read one range image and the calibration | `waymo/waymofile.h` |
+| 2 | Read one range image and the calibration; ranges, grey from intensity | `waymo/waymofile.h`, `adapters/waymo_frame.h` |
 | 3 | Calibration -> a tilt per row, a turn per column, the mount | `adapters/waymo_adapter.h` |
-| 4 | Range image -> one dot per box, in the vehicle frame (GPU) | `generic/kernels.cuh`, `generic/geometry.h` |
-| 5 | Drop empty boxes, grey from intensity, write the point cloud | `generic/pointcloud.h` |
+| 4 | Range image -> one dot per box, in the vehicle frame (GPU) | `generic/launch.cuh`, `generic/kernels.cuh`, `generic/geometry.h` |
+| 5 | Drop empty boxes, write the point cloud | `generic/pointcloud.h` |
 
-Stages 2 to 5 are `adapters/waymo_to_points.cu`, normally started by `run.py`.
+Stages 2 to 5 are `waymo_to_points.cu`, normally started by `run.py`.
 The adapter (stage 3) runs on the CPU, once per laser.
 
 ## Run

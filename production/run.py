@@ -9,7 +9,7 @@ This never downloads anything. The point cloud goes to
 output/<segment>/frameFFFF_laserL_vehicle.bin, a point-cloud file (pointcloud.h),
 in the vehicle frame.
 
-Compiles production/adapters/waymo_to_points.cu into production/build/ first,
+Compiles production/waymo_to_points.cu into production/build/ first,
 but only when a source file is newer than the program.
 """
 
@@ -25,7 +25,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(HERE, "data")
 OUTPUT = os.path.join(HERE, "output")
 BUILD = os.path.join(HERE, "build")
-SOURCE = os.path.join(HERE, "adapters", "waymo_to_points.cu")
+SOURCE = os.path.join(HERE, "waymo_to_points.cu")
 PROGRAM = os.path.join(BUILD, "waymo_to_points")
 
 # nvcc on this machine comes with the PyTorch env (see CLAUDE.md). Its libraries
