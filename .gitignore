@@ -36,3 +36,7 @@ references/
 .vscode/
 .ipynb_checkpoints/
 __pycache__/
+
+# production/: links to the data outside the repo (~/data/...)
+production/data
+production/output
