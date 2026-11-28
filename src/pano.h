@@ -44,7 +44,7 @@
 // number, so the two pictures apply the identical rule.
 const float panoMinDistance = 0.1f;
 
-// panoProject: where does a dot land in the wrap-around picture?
+// sensorToPano: where does a dot land in the wrap-around picture?
 //
 // INPUTS
 //   x, y, z    the dot, in steps from the sensor: x right, y DOWN, z ahead, in metres.
@@ -56,7 +56,7 @@ const float panoMinDistance = 0.1f;
 //   u          the column, as a decimal number (217.87 means box 217)
 //   v          the row, as a decimal number
 //   distance   the straight-line distance to the dot, in metres
-HD inline void panoProject(float x, float y, float z, int W, int H,
+HD inline void sensorToPano(float x, float y, float z, int W, int H,
                            float& u, float& v, float& distance)
 {
   const float pi = 3.14159265f;
@@ -85,7 +85,7 @@ HD inline void panoProject(float x, float y, float z, int W, int H,
 //
 // THE JOBS, in order, for each dot
 //   1. world -> sensor (R and t)
-//   2. panoProject -> column, row, distance
+//   2. sensorToPano -> column, row, distance
 //   3. decimal column and row -> whole box numbers
 //   4. box numbers -> position in the long list
 //   5. keep the smaller distance
@@ -103,7 +103,7 @@ inline void panoDepthCPU(const std::vector<Point>& pts, const Camera& cam,
     float x, y, z;
     float u, v, distance;
     worldToSensor(pt.x, pt.y, pt.z, cam, x, y, z);
-    panoProject(x, y, z, W, H, u, v, distance);
+    sensorToPano(x, y, z, W, H, u, v, distance);
     if (distance < panoMinDistance) continue;   // too close to be real: skip
     int col = static_cast<int>(u);
     int row = static_cast<int>(v);

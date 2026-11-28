@@ -4,7 +4,7 @@
 #include <cmath>
 #include "camera.h"    // Camera and setPose
 #include "image.h"     // writePGM
-#include "pano.h"      // panoProject and panoDepthCPU
+#include "pano.h"      // sensorToPano and panoDepthCPU
 #include "point.h"     // Point
 #include "scenefile.h" // readScene: loads the dots project.cu saved
 
@@ -50,7 +50,7 @@ __global__ void panoDepthKernel(const Point* pts, int N, Camera cam,
   float x, y, z;
   float u, v, distance;
   worldToSensor(pt.x, pt.y, pt.z, cam, x, y, z);
-  panoProject(x, y, z, W, H, u, v, distance);
+  sensorToPano(x, y, z, W, H, u, v, distance);
   if (distance < panoMinDistance) return;   // too close to be real: skip
   int col = static_cast<int>(u);
   int row = static_cast<int>(v);
@@ -173,7 +173,7 @@ int main() {
     for (int i = 0; i < N; i++) {
       float x, y, z, u, v, distance;
       worldToSensor(pts[i].x, pts[i].y, pts[i].z, cam, x, y, z);
-      panoProject(x, y, z, PW, PH, u, v, distance);
+      sensorToPano(x, y, z, PW, PH, u, v, distance);
       bool isCpuDot = (distance == cpuDepth[k]);
       bool isGpuDot = (distance == gpuDepth[k]);
       if (!isCpuDot && !isGpuDot) continue;

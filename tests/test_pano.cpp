@@ -29,11 +29,11 @@ void report(const char* name, bool ok) {
     if (!ok) failures++;
 }
 
-// Run one dot through panoProject and check the column, the row and the distance.
+// Run one dot through sensorToPano and check the column, the row and the distance.
 void expectPano(const char* name, float x, float y, float z, int W, int H,
                 float expectedU, float expectedV, float expectedDistance) {
     float u, v, distance;
-    panoProject(x, y, z, W, H, u, v, distance);
+    sensorToPano(x, y, z, W, H, u, v, distance);
     bool ok = closeTo(u, expectedU) && closeTo(v, expectedV) && closeTo(distance, expectedDistance);
     report(name, ok);
     if (!ok) printf("      got column %f, row %f, distance %f\n"
@@ -116,14 +116,14 @@ int main()
 
     // Straight up and straight down. The column is not checked: when you look
     // straight up, every turn points the same way, so any column is as good as another.
-    panoProject(0.0f, -3.0f, 0.0f, W, H, u, v, distance);
+    sensorToPano(0.0f, -3.0f, 0.0f, W, H, u, v, distance);
     report("12. straight up is the top row", closeTo(v, 0.0f) && closeTo(distance, 3.0f));
-    panoProject(0.0f, 2.0f, 0.0f, W, H, u, v, distance);
+    sensorToPano(0.0f, 2.0f, 0.0f, W, H, u, v, distance);
     report("13. straight down is the bottom edge", closeTo(v, 512.0f) && closeTo(distance, 2.0f));
 
     // Directly behind. This is where the picture wraps: the left edge (column 0)
     // and the right edge (column 1024) are the same direction, so either is right.
-    panoProject(0.0f, 0.0f, -5.0f, W, H, u, v, distance);
+    sensorToPano(0.0f, 0.0f, -5.0f, W, H, u, v, distance);
     report("14. directly behind is the wrap edge",
            (closeTo(u, 0.0f) || closeTo(u, 1024.0f)) && closeTo(v, 256.0f) && closeTo(distance, 5.0f));
 

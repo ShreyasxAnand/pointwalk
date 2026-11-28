@@ -34,8 +34,8 @@
 //                    is turned. 0 is straight ahead, positive is to the RIGHT.
 //
 // The angles come from two lists, not from a formula, because a real laser's
-// rows are not evenly spaced. Same conventions as panoProject, so a dot made
-// here and put through panoProject lands back on its own tilt and turn.
+// rows are not evenly spaced. Same conventions as sensorToPano, so a dot made
+// here and put through sensorToPano lands back on its own tilt and turn.
 
 // A box holds a return only when its range is greater than this. The CPU
 // version, the GPU kernel and main() must all use this name, never their own
@@ -50,8 +50,8 @@ struct SensorToScene {
   float t[3];      // shift:    sensor -> scene, in metres
 };
 
-// FUNCTION A. panoUnproject: where is the dot, seen from the sensor?
-// This is panoProject (pano.h) run backwards.
+// FUNCTION A. sphericalToSensor: where is the dot, seen from the sensor?
+// This is sensorToPano (pano.h) run backwards.
 //
 // INPUTS
 //   tilt       radians. 0 level, positive down.
@@ -64,7 +64,7 @@ struct SensorToScene {
 //
 // WORKED EXAMPLE (put yours here, then use it in the test)
 //   tilt 30 degrees down, turn 90 degrees right, distance 2  ->  ( ?, ?, ? )
-HD inline void panoUnproject(float tilt, float turn, float distance,
+HD inline void sphericalToSensor(float tilt, float turn, float distance,
                              float& x, float& y, float& z)
 {
   z = distance * cosf(turn) * cosf(tilt);
@@ -125,11 +125,11 @@ HD inline void sceneToSensor(float x, float y, float z, const SensorToScene& pla
   zs = place.R[0][2] * dx + place.R[1][2] * dy + place.R[2][2] * dz;
 }
 
-// FUNCTION A BACKWARDS. panoAngles: a dot seen from the sensor -> the tilt, the
+// FUNCTION A BACKWARDS. sensorToSpherical: a dot seen from the sensor -> the tilt, the
 // turn and the distance that function A would make it from. Used by the
 // round-trip check.
 //
-// These are the same lines as inside panoProject (pano.h). panoProject goes one
+// These are the same lines as inside sensorToPano (pano.h). sensorToPano goes one
 // step further and changes the turn into a column and the tilt into a row of an
 // evenly spaced picture. A laser's rows are not evenly spaced, so here the
 // angles are handed back as they are.
@@ -145,7 +145,7 @@ HD inline void sceneToSensor(float x, float y, float z, const SensorToScene& pla
 // WORKED EXAMPLE (check 51 in tests/test_rangepoints.cpp)
 //   the dot (2, 0, 0): 2 m to the right, level
 //   turn 90 degrees, tilt 0, distance 2
-HD inline void panoAngles(float x, float y, float z,
+HD inline void sensorToSpherical(float x, float y, float z,
                           float& tilt, float& turn, float& distance)
 {
   turn = atan2f(x, z);                              // sideways against ahead
@@ -188,7 +188,7 @@ inline void rangeToPointsCPU(const std::vector<float>& ranges, int H, int W,
       float tilt = tiltOfRow[row];
       float turn = turnOfColumn[col];
       float xs, ys, zs;
-      panoUnproject(tilt, turn, range, xs, ys, zs);
+      sphericalToSensor(tilt, turn, range, xs, ys, zs);
 
       float x, y, z;
       sensorToScene(xs, ys, zs, place, x, y, z);

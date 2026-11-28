@@ -4,8 +4,8 @@
 #include <vector>
 #include "image.h"         // Color
 #include "point.h"         // Point
-#include "rangepoints.h"   // panoUnproject, sensorToScene, rangeToPointsCPU, rangeMinReturn,
-                           // and for the round trip: sceneToSensor, panoAngles
+#include "rangepoints.h"   // sphericalToSensor, sensorToScene, rangeToPointsCPU, rangeMinReturn,
+                           // and for the round trip: sceneToSensor, sensorToSpherical
 #include "scenefile.h"     // writeScene: saves the dots so the viewer can show them
 #include "../io/waymo/waymofile.h"       // readWaymoRange, readWaymoCalibration (raw)
 #include "../io/waymo/waymo_adapter.h"   // raw Waymo numbers -> the kernel's plain inputs
@@ -60,7 +60,7 @@ __global__ void rangeToPointsKernel(const float* ranges, int H, int W,
   float tilt = tiltOfRow[row];
   float turn = turnOfColumn[col];
   float xs, ys, zs;
-  panoUnproject(tilt, turn, range, xs, ys, zs);
+  sphericalToSensor(tilt, turn, range, xs, ys, zs);
   float x, y, z;
   sensorToScene(xs, ys, zs, place, x, y, z);
   points[row * W + col].x = x;
@@ -217,7 +217,7 @@ int main(int argc, char** argv) {
 
   // ---- Step 7's check, the round trip: every GPU dot back to row, column and range ----
   //   1. sceneToSensor   the dot, measured from the laser again   (function B backwards)
-  //   2. panoAngles      its tilt, turn and distance              (function A backwards)
+  //   2. sensorToSpherical      its tilt, turn and distance              (function A backwards)
   //   3. the two list searches: which row has that tilt, which column has that turn
   // A dot passes when it lands in the box it came from. The distance must match
   // the range that was in that box, within the same 0.1 mm as above.
@@ -228,7 +228,7 @@ int main(int argc, char** argv) {
     const Point& g = gpuPoints[box];
     float xs, ys, zs, tilt, turn, distance;
     sceneToSensor(g.x, g.y, g.z, place, xs, ys, zs);
-    panoAngles(xs, ys, zs, tilt, turn, distance);
+    sensorToSpherical(xs, ys, zs, tilt, turn, distance);
     const int row = nearestRow(tilt, tiltOfRow);
     const int col = nearestColumn(turn, turnOfColumn);
     if (row != box / W || col != box % W) {

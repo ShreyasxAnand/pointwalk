@@ -1,6 +1,6 @@
 #include "rangepoints.h"
 #include "camera.h"   // Camera, setPose, worldToSensor: for the "there and back" checks
-#include "pano.h"     // panoProject: panoUnproject must be its exact reverse
+#include "pano.h"     // sensorToPano: sphericalToSensor must be its exact reverse
 #include <cstdio>
 #include <cmath>
 #include <vector>
@@ -30,7 +30,7 @@ float rad(float degrees) { return degrees * pi / 180.0f; }
 // far tighter than anything a wrong sign or a swapped axis could pass.
 bool closeTo(float a, float b) { return fabsf(a - b) < 1e-4f; }
 
-// The same, for the checks that go through panoProject's column and row. A
+// The same, for the checks that go through sensorToPano's column and row. A
 // column number near 1000 is only exact to about 0.0001 of a column, and that
 // small error comes back as a few hundredths of a millimetre at 60 m. One
 // millimetre leaves room for it.
@@ -42,28 +42,28 @@ void report(const char* name, bool ok) {
     if (!ok) failures++;
 }
 
-// Run one (tilt, turn, distance) through panoUnproject and check the dot.
+// Run one (tilt, turn, distance) through sphericalToSensor and check the dot.
 // Tilt and turn are given in degrees here, to keep the table readable.
 void expectDot(const char* name, float tiltDegrees, float turnDegrees, float distance,
                float ex, float ey, float ez) {
     float x, y, z;
-    panoUnproject(rad(tiltDegrees), rad(turnDegrees), distance, x, y, z);
+    sphericalToSensor(rad(tiltDegrees), rad(turnDegrees), distance, x, y, z);
     bool ok = closeTo(x, ex) && closeTo(y, ey) && closeTo(z, ez);
     report(name, ok);
     if (!ok) printf("      got (%f, %f, %f), expected (%f, %f, %f)\n", x, y, z, ex, ey, ez);
 }
 
-// A dot -> panoProject -> column, row, distance -> back to turn and tilt ->
-// panoUnproject -> must be the dot we started with.
+// A dot -> sensorToPano -> column, row, distance -> back to turn and tilt ->
+// sphericalToSensor -> must be the dot we started with.
 void expectThereAndBack(const char* name, float x, float y, float z) {
     const int W = 1024, H = 512;
     float u, v, distance;
-    panoProject(x, y, z, W, H, u, v, distance);
-    // Undo panoProject's last step for each: column -> turn, row -> tilt.
+    sensorToPano(x, y, z, W, H, u, v, distance);
+    // Undo sensorToPano's last step for each: column -> turn, row -> tilt.
     float turn = u * (2 * pi) / W - pi;
     float tilt = v * pi / H - pi / 2;
     float bx, by, bz;
-    panoUnproject(tilt, turn, distance, bx, by, bz);
+    sphericalToSensor(tilt, turn, distance, bx, by, bz);
     bool ok = closeToMm(bx, x) && closeToMm(by, y) && closeToMm(bz, z);
     report(name, ok);
     if (!ok) printf("      started at (%f, %f, %f), came back as (%f, %f, %f)\n", x, y, z, bx, by, bz);
@@ -89,14 +89,14 @@ void expectSeen(const char* name, const SensorToScene& place,
     if (!ok) printf("      got (%f, %f, %f), expected (%f, %f, %f)\n", xs, ys, zs, exs, eys, ezs);
 }
 
-// Run one dot through panoAngles and check the tilt, the turn and the distance.
+// Run one dot through sensorToSpherical and check the tilt, the turn and the distance.
 // The expected tilt and turn are given in degrees, to keep the table readable.
 // An angle counts as right when it is within 0.00001 radians (0.0006 degrees):
 // at 75 m that is under a millimetre sideways.
 void expectAngles(const char* name, float x, float y, float z,
                   float eTiltDegrees, float eTurnDegrees, float eDistance) {
     float tilt, turn, distance;
-    panoAngles(x, y, z, tilt, turn, distance);
+    sensorToSpherical(x, y, z, tilt, turn, distance);
     bool ok = fabsf(tilt - rad(eTiltDegrees)) < 1e-5f && fabsf(turn - rad(eTurnDegrees)) < 1e-5f
            && closeTo(distance, eDistance);
     report(name, ok);
@@ -118,7 +118,7 @@ void expectBox(const char* name, const std::vector<Point>& points, int W, int ro
 int main()
 {
     // =======================================================================
-    // Part 1. panoUnproject (function A): answers you can see without a formula.
+    // Part 1. sphericalToSensor (function A): answers you can see without a formula.
     // =======================================================================
 
     // ---- Level, along one direction ----
@@ -155,7 +155,7 @@ int main()
         for (float tilt : tilts)
             for (float turn : turns) {
                 float x, y, z;
-                panoUnproject(rad(tilt), rad(turn), 61.0f, x, y, z);
+                sphericalToSensor(rad(tilt), rad(turn), 61.0f, x, y, z);
                 float length = sqrtf(x * x + y * y + z * z);
                 if (!closeTo(length, 61.0f)) {
                     ok = false;
@@ -166,7 +166,7 @@ int main()
     }
 
     // =======================================================================
-    // Part 2. panoUnproject is panoProject backwards. No hand-worked numbers
+    // Part 2. sphericalToSensor is sensorToPano backwards. No hand-worked numbers
     // here: your own step-4 function is the judge.
     // =======================================================================
 
@@ -178,20 +178,20 @@ int main()
     expectThereAndBack("19. there and back: behind, left and below", -7.0f,   1.5f, -12.0f);
     expectThereAndBack("20. there and back: far away",               30.8f,  18.4f, -49.3f);
 
-    // The other way round: angles -> dot -> panoProject -> the same angles.
+    // The other way round: angles -> dot -> sensorToPano -> the same angles.
     // One column is 360/1024 degrees and one row is 180/512 degrees, so both
     // angles can be read straight off the column and the row.
     {
         const int W = 1024, H = 512;
         const float tilt = rad(17.6f), turn = rad(148.0f), range = 61.0f;
         float x, y, z, u, v, distance;
-        panoUnproject(tilt, turn, range, x, y, z);
-        panoProject(x, y, z, W, H, u, v, distance);
+        sphericalToSensor(tilt, turn, range, x, y, z);
+        sensorToPano(x, y, z, W, H, u, v, distance);
         float turnBack = u * (2 * pi) / W - pi;
         float tiltBack = v * pi / H - pi / 2;
         bool ok = fabsf(turnBack - turn) < 1e-5f && fabsf(tiltBack - tilt) < 1e-5f
                && closeToMm(distance, range);
-        report("21. angles -> dot -> panoProject gives the same angles and distance", ok);
+        report("21. angles -> dot -> sensorToPano gives the same angles and distance", ok);
         if (!ok) printf("      went in: tilt %f, turn %f, distance %f\n"
                         "      came back: tilt %f, turn %f, distance %f\n",
                         tilt, turn, range, tiltBack, turnBack, distance);
@@ -381,7 +381,7 @@ int main()
     }
 
     // =======================================================================
-    // Part 6. panoAngles: function A backwards.
+    // Part 6. sensorToSpherical: function A backwards.
     // Most checks are a part-1 check read from right to left.
     // =======================================================================
 
@@ -403,7 +403,7 @@ int main()
     expectAngles("59. angles: ahead, right and above", 6.0f, -10.0f, 8.0f,  -45.0f, 36.869898f, 14.142136f);
     expectAngles("60. angles: ahead, right and below", 3.0f,   5.0f, 4.0f,   45.0f, 36.869898f,  7.071068f);
 
-    // ---- There and back: angles -> panoUnproject -> panoAngles -> the same angles ----
+    // ---- There and back: angles -> sphericalToSensor -> sensorToSpherical -> the same angles ----
     // The tilts and turns are the kind a real laser has, plus some far out.
     {
         bool ok = true;
@@ -412,8 +412,8 @@ int main()
         for (float tiltDegrees : tilts)
             for (float turnDegrees : turns) {
                 float x, y, z, tilt, turn, distance;
-                panoUnproject(rad(tiltDegrees), rad(turnDegrees), 61.0f, x, y, z);
-                panoAngles(x, y, z, tilt, turn, distance);
+                sphericalToSensor(rad(tiltDegrees), rad(turnDegrees), 61.0f, x, y, z);
+                sensorToSpherical(x, y, z, tilt, turn, distance);
                 if (!(fabsf(tilt - rad(tiltDegrees)) < 1e-5f && fabsf(turn - rad(turnDegrees)) < 1e-5f
                       && closeTo(distance, 61.0f))) {
                     ok = false;
@@ -422,11 +422,11 @@ int main()
                            rad(tiltDegrees), rad(turnDegrees), tilt, turn, distance);
                 }
             }
-        report("61. angles -> dot -> panoAngles gives the same angles (36 directions)", ok);
+        report("61. angles -> dot -> sensorToSpherical gives the same angles (36 directions)", ok);
     }
 
-    // ---- The judge from step 4: panoAngles must agree with your panoProject ----
-    // panoProject reports the turn as a column and the tilt as a row. In a
+    // ---- The judge from step 4: sensorToSpherical must agree with your sensorToPano ----
+    // sensorToPano reports the turn as a column and the tilt as a row. In a
     // picture 1024 wide and 512 tall, column = (turn + pi) * 1024 / (2 * pi)
     // and row = (tilt + pi / 2) * 512 / pi.
     {
@@ -436,18 +436,18 @@ int main()
         bool ok = true;
         for (const Point& dot : dots) {
             float u, v, panoDistance, tilt, turn, distance;
-            panoProject(dot.x, dot.y, dot.z, PW, PH, u, v, panoDistance);
-            panoAngles(dot.x, dot.y, dot.z, tilt, turn, distance);
+            sensorToPano(dot.x, dot.y, dot.z, PW, PH, u, v, panoDistance);
+            sensorToSpherical(dot.x, dot.y, dot.z, tilt, turn, distance);
             float uFromTurn = (turn + pi) * PW / (2 * pi);
             float vFromTilt = (tilt + pi / 2) * PH / pi;
             if (!(fabsf(u - uFromTurn) < 1e-3f && fabsf(v - vFromTilt) < 1e-3f && distance == panoDistance)) {
                 ok = false;
-                printf("      dot (%f, %f, %f): panoProject says column %f, row %f, distance %f\n"
-                       "      panoAngles says column %f, row %f, distance %f\n",
+                printf("      dot (%f, %f, %f): sensorToPano says column %f, row %f, distance %f\n"
+                       "      sensorToSpherical says column %f, row %f, distance %f\n",
                        dot.x, dot.y, dot.z, u, v, panoDistance, uFromTurn, vFromTilt, distance);
             }
         }
-        report("62. panoAngles agrees with panoProject", ok);
+        report("62. sensorToSpherical agrees with sensorToPano", ok);
     }
 
     printf("\n%d check(s) failed\n", failures);
