@@ -10,13 +10,10 @@
 #include "../generic/color.h"              // Color
 #include "../generic/point.h"              // Point
 #include "../generic/pointcloud.h"          // writePointCloud
-#include "../generic/kernels.cuh"          // rangeToVehicleKernel, rangeMinReturn
+#include "../generic/kernels.cuh"          // rangeMinReturn
+#include "../generic/launch.cuh"           // rangeToVehicleGPU
 #include "../waymo/waymofile.h"            // readWaymoRange, readWaymoCalibration
 #include "waymo_adapter.h"                 // waymoTiltOfRow, waymoTurnOfColumn, waymoSensorToVehicle
-
-// Exit with a message if a CUDA call fails (CUDA errors are otherwise silent).
-#define CHECK(call) do { cudaError_t e = (call); if (e != cudaSuccess) { \
-  fprintf(stderr, "CUDA error: %s (line %d)\n", cudaGetErrorString(e), __LINE__); exit(1); } } while (0)
 
 int main(int argc, char** argv) {
   if (argc != 5) {
@@ -59,30 +56,7 @@ int main(int argc, char** argv) {
   waymoSensorToVehicle(*cal, mount);
 
   // ---- 3. Range image -> vehicle-frame dots, on the GPU ----
-  float* d_ranges;
-  float* d_tiltOfRow;
-  float* d_turnOfColumn;
-  Point* d_points;
-  CHECK(cudaMalloc(&d_ranges, numBoxes * sizeof(float)));
-  CHECK(cudaMalloc(&d_tiltOfRow, H * sizeof(float)));
-  CHECK(cudaMalloc(&d_turnOfColumn, W * sizeof(float)));
-  CHECK(cudaMalloc(&d_points, numBoxes * sizeof(Point)));
-  CHECK(cudaMemcpy(d_ranges, ranges.data(), numBoxes * sizeof(float), cudaMemcpyHostToDevice));
-  CHECK(cudaMemcpy(d_tiltOfRow, tiltOfRow.data(), H * sizeof(float), cudaMemcpyHostToDevice));
-  CHECK(cudaMemcpy(d_turnOfColumn, turnOfColumn.data(), W * sizeof(float), cudaMemcpyHostToDevice));
-
-  const int threads = 256;
-  const int blocks = (numBoxes + threads - 1) / threads;   // round up to cover every box
-  rangeToVehicleKernel<<<blocks, threads>>>(d_ranges, H, W, d_tiltOfRow, d_turnOfColumn, mount, d_points);
-  CHECK(cudaGetLastError());
-  CHECK(cudaDeviceSynchronize());
-
-  std::vector<Point> boxPoints(numBoxes);
-  CHECK(cudaMemcpy(boxPoints.data(), d_points, numBoxes * sizeof(Point), cudaMemcpyDeviceToHost));
-  cudaFree(d_ranges);
-  cudaFree(d_tiltOfRow);
-  cudaFree(d_turnOfColumn);
-  cudaFree(d_points);
+  std::vector<Point> boxPoints = rangeToVehicleGPU(ranges, H, W, tiltOfRow, turnOfColumn, mount);
 
   // ---- 4. Drop empty boxes, grey from intensity, write ----
   // Grey = 50 + 205 * sqrt(intensity, clamped to 0..1), intensity is channel 1.
