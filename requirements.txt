@@ -1,0 +1,9 @@
+# The one Python env for this project (everything except experiments/realplace/).
+#   /usr/bin/python3.13 -m venv ~/venvs/pointwalk
+#   ~/venvs/pointwalk/bin/pip install -r requirements.txt
+
+-r waymo/requirements.txt   # converter and inspect script
+
+# viewer/server.py (JPEG pictures) and viewer/replay.py (chart)
+pillow==13.0.0
+matplotlib==3.11.2
